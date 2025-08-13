@@ -1,0 +1,24 @@
+{
+    "474380232468463646": {
+        "items": {
+            "1 golden halo": 1
+        },
+        "nets": [
+            {
+                "name": "Sturdy net",
+                "durability": 5
+            },
+            {
+                "name": "Regular net",
+                "durability": 10
+            },
+            {
+                "name": "Regular net",
+                "durability": 10
+            }
+        ],
+        "net_durability": 0,
+        "xp": 0,
+        "equipped_net": "Sturdy net"
+    }
+}

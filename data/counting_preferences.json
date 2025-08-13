@@ -1,0 +1,7 @@
+{
+    "consecutive_counting": true,
+    "delete_incorrect": false,
+    "role_on_miscount": true,
+    "sudden_death": true,
+    "mode": "incremental"
+}

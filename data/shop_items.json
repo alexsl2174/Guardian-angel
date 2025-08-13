@@ -1,0 +1,249 @@
+[
+    {
+        "id": 1,
+        "name": "1 Golden Halo",
+        "price": 2500,
+        "description": "1 Golden Halo Collected!",
+        "role_to_give": "1 Golden Halo",
+        "type": "cosmetic",
+        "image_filename": "1goldenhalo.png",
+        "emoji": "<:GoldenHalo:1390775202480263369>"
+    },
+    {
+        "id": 2,
+        "name": "2 Golden Halos",
+        "price": 2500,
+        "description": "2 Golden Halos Collected!",
+        "role_to_give": "2 Golden Halos",
+        "type": "cosmetic",
+        "image_filename": "1goldenhalo.png",
+        "requirement": "1 Golden Halo",
+        "emoji": "<:GoldenHalo:1390775202480263369>"
+    },
+    {
+        "id": 3,
+        "name": "3 Golden Halos",
+        "price": 2500,
+        "description": "3 Golden Halos Collected!",
+        "role_to_give": "3 Golden Halos",
+        "type": "cosmetic",
+        "image_filename": "1goldenhalo.png",
+        "requirement": "2 Golden Halos",
+        "emoji": "<:GoldenHalo:1390775202480263369>"
+    },
+    {
+        "id": 4,
+        "name": "4 Golden Halos",
+        "price": 2500,
+        "description": "4 Golden Halos Collected!",
+        "role_to_give": "4 Golden Halos",
+        "type": "cosmetic",
+        "image_filename": "1goldenhalo.png",
+        "requirement": "3 Golden Halos",
+        "emoji": "<:GoldenHalo:1390775202480263369>"
+    },
+    {
+        "id": 5,
+        "name": "5 Golden Halos",
+        "price": 2500,
+        "description": "5 Golden Halos Collected!",
+        "role_to_give": "5 Golden Halos",
+        "type": "cosmetic",
+        "image_filename": "1goldenhalo.png",
+        "requirement": "4 Golden Halos",
+        "emoji": "<:GoldenHalo:1390775202480263369>"
+    },
+    {
+        "id": 6,
+        "name": "1 Set Of Horns",
+        "price": 5000,
+        "description": "1 Set Of Devil Horns Collected",
+        "role_to_give": "1 Set Of Horns",
+        "type": "cosmetic",
+        "image_filename": "1devilhorns.png",
+        "emoji": "<:DevilHorns:1390778880037486764>"
+    },
+    {
+        "id": 7,
+        "name": "2 Sets Of Horns",
+        "price": 5000,
+        "description": "2 Sets Of Devil Horns Collected",
+        "role_to_give": "2 Sets Of Horns",
+        "type": "cosmetic",
+        "image_filename": "1devilhorns.png",
+        "requirement": "1 Set Of Horns",
+        "emoji": "<:DevilHorns:1390778880037486764>"
+    },
+    {
+        "id": 8,
+        "name": "3 Sets Of Horns",
+        "price": 5000,
+        "description": "3 Sets Of Devil Horns Collected",
+        "role_to_give": "3 Sets Of Horns",
+        "type": "cosmetic",
+        "image_filename": "1devilhorns.png",
+        "requirement": "2 Sets Of Horns",
+        "emoji": "<:DevilHorns:1390778880037486764>"
+    },
+    {
+        "id": 9,
+        "name": "4 Sets Of Horns",
+        "price": 5000,
+        "description": "4 Sets Of Devil Horns Collected",
+        "role_to_give": "4 Sets Of Horns",
+        "type": "cosmetic",
+        "image_filename": "1devilhorns.png",
+        "requirement": "3 Sets Of Horns",
+        "emoji": "<:DevilHorns:1390778880037486764>"
+    },
+    {
+        "id": 10,
+        "name": "5 Sets Of Horns",
+        "price": 5000,
+        "description": "5 Sets Of Devil Horns Collected",
+        "role_to_give": "5 Sets Of Horns",
+        "type": "cosmetic",
+        "image_filename": "1devilhorns.png",
+        "requirement": "4 Sets Of Horns",
+        "emoji": "<:DevilHorns:1390778880037486764>"
+    },
+    {
+        "id": 11,
+        "name": "Regular Net",
+        "description": "A basic net for catching bugs. Breaks after 3 catches.",
+        "type": "net",
+        "image_filename": "regularnet.png",
+        "durability": 3,
+        "price": 50,
+        "emoji": "<:butterfly_net:1405010338079838289>"
+    },
+    {
+        "id": 12,
+        "name": "Sturdy Net",
+        "description": "A more durable net. Breaks after 5 catches.",
+        "type": "net",
+        "image_filename": "bugnet.png",
+        "durability": 5,
+        "price": 500,
+        "emoji": "<:butterfly_net:1405010338079838289>"
+    },
+    {
+        "id": 13,
+        "name": "Master Net",
+        "description": "The finest net money can buy. Breaks after 10 catches.",
+        "type": "net",
+        "image_filename": "masternet.png",
+        "durability": 10,
+        "price": 5000,
+        "emoji": "<:butterfly_net:1405010338079838289>"
+    },
+    {
+        "id": 14,
+        "name": "1 Set Of Angel Wings",
+        "price": 10000,
+        "description": "1 Set Of Angel Wings Collected",
+        "role_to_give": "1 Set Of Angel Wings",
+        "type": "cosmetic",
+        "requirement": null,
+        "image_filename": "angelwings.png",
+        "emoji": "<:AngelWings:1390781118822744157>"
+    },
+    {
+        "id": 15,
+        "name": "2 Sets Of Angel Wings",
+        "price": 10000,
+        "description": "2 Sets Of Angel Wings Collected",
+        "role_to_give": "2 Sets Of Angel Wings",
+        "type": "cosmetic",
+        "requirement": "1 Set Of Angel Wings",
+        "image_filename": "angelwings.png",
+        "emoji": "<:AngelWings:1390781118822744157>"
+    },
+    {
+        "id": 16,
+        "name": "3 Sets Of Angel Wings",
+        "price": 10000,
+        "description": "3 Sets Of Angel Wings Collected",
+        "role_to_give": "3 Sets Of Angel Wings",
+        "type": "cosmetic",
+        "requirement": "2 Sets Of Angel Wings",
+        "image_filename": "angelwings.png",
+        "emoji": "<:AngelWings:1390781118822744157>"
+    },
+    {
+        "id": 17,
+        "name": "4 Sets Of Angel Wings",
+        "price": 10000,
+        "description": "4 Sets Of Angel Wings Collected",
+        "role_to_give": "4 Sets Of Angel Wings",
+        "type": "cosmetic",
+        "requirement": "3 Sets Of Angel Wings",
+        "image_filename": "angelwings.png",
+        "emoji": "<:AngelWings:1390781118822744157>"
+    },
+    {
+        "id": 18,
+        "name": "5 Sets Of Angel Wings",
+        "price": 10000,
+        "description": "5 Sets Of Angel Wings Collected",
+        "role_to_give": "5 Sets Of Angel Wings",
+        "type": "cosmetic",
+        "requirement": "4 Sets Of Angel Wings",
+        "image_filename": "angelwings.png",
+        "emoji": "<:AngelWings:1390781118822744157>"
+    },
+    {
+        "id": 19,
+        "name": "1 Devil Tails",
+        "price": 20000,
+        "description": "1 Devil Tail Collected",
+        "role_to_give": "1 Devil Tails",
+        "type": "cosmetic",
+        "image_filename": "devilstail.png",
+        "emoji": "<:devilheart:894816927808110592>"
+    },
+    {
+        "id": 20,
+        "name": "2 Devil Tails",
+        "price": 20000,
+        "description": "2 Devil Tails Collected",
+        "role_to_give": "2 Devil Tails",
+        "type": "cosmetic",
+        "requirement": "1 Devil Tails",
+        "image_filename": "devilstail.png",
+        "emoji": "<:devilheart:894816927808110592>"
+    },
+    {
+        "id": 21,
+        "name": "3 Devil Tails",
+        "price": 20000,
+        "description": "3 Devil Tails Collected",
+        "role_to_give": "3 Devil Tails",
+        "type": "cosmetic",
+        "requirement": "2 Devil Tails",
+        "image_filename": "devilstail.png",
+        "emoji": "<:devilheart:894816927808110592>"
+    },
+    {
+        "id": 22,
+        "name": "Brat Pass",
+        "price": 5000,
+        "description": "Use this card to avoid the consequences or the 'finding out' of bratty behaviour!",
+        "role_to_give": "Brat Pass",
+        "type": "cosmetic",
+        "requirement": null,
+        "image_filename": "brattpass.png",
+        "emoji": "<:brattpass:1405029141467762700>"
+    },
+    {
+        "id": 23,
+        "name": "Brat Pass Override",
+        "price": 5000,
+        "description": "Use this to override a Brat Pass",
+        "role_to_give": "Brat Pass Overide",
+        "type": "cosmetic",
+        "requirement": null,
+        "image_filename": "brattpass.png",
+        "emoji": "<:brattpass:1405029141467762700>"
+    }
+]

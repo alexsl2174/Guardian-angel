@@ -1,0 +1,69 @@
+{
+    "MAIN_GUILD_ID": 1157108910805749822,
+    "TEST_CHANNEL_ID": 1403900596020580523,
+    "CHAT_REVIVE_CHANNEL_ID": 1403900596020580523,
+    "DAILY_COMMENTS_CHANNEL_ID": 1403900596020580523,
+    "SELF_ROLES_CHANNEL_ID": 1403900596020580523,
+    "SINNER_CHAT_CHANNEL_ID": 1403900596020580523,
+    "ANAGRAM_CHANNEL_ID": 1403900596020580523,
+    "BUMP_BATTLE_CHANNEL_ID": 1290644182511124491,
+    "ANNOUNCEMENTS_CHANNEL_ID": 1403900596020580523,
+    "VOTE_CHANNEL_ID": 1290644182511124491,
+    "VOTE_COOLDOWN_HOURS": 24,
+    "COUNTING_CHANNEL_ID": 1403900596020580523,
+    "current_sentence": [],
+    "role_ids": {
+        "Visitor": 852983581689380914,
+        "verified_access": 1264619999864291480,
+        "cross_verified": 1049085601913245788,
+        "id_verified": 1049231659532304404,
+        "Staff": 824791444795555911,
+        "monday_role": 1251902711839064166,
+        "tuesday_role": 1251902868345196595,
+        "wednesday_role": 1251902943670698106,
+        "thursday_role": 1251903006417489950,
+        "friday_role": 1251903081088811081,
+        "saturday_role": 1251903342939082802,
+        "sunday_role": 1251903416725405796,
+        "announcements_role": 824247079018823690,
+        "chat_revive_role": 1281084337516707890
+    },
+    "timed_channels": {
+        "monday": [
+            1251902711839064166,
+            1251902711839064166,
+            "Bumday Monday"
+        ],
+        "tuesday": [
+            1251902868345196595,
+            1251902868345196595,
+            "Tits Out Tuesday"
+        ],
+        "wednesday": [
+            1251902943670698106,
+            1251902943670698106,
+            "Wet Wednesday"
+        ],
+        "thursday": [
+            1251903006417489950,
+            1251903006417489950,
+            "Furbaby Thursday"
+        ],
+        "friday": [
+            1251903081088811081,
+            1251903081088811081,
+            "Frisky Friday"
+        ],
+        "saturday": [
+            1251903342939082802,
+            1251903342939082802,
+            "Selfie Saturday"
+        ],
+        "sunday": [
+            1251903416725405796,
+            1251903416725405796,
+            "Slutty Sunday"
+        ]
+    },
+    "REVIVE_INTERVAL_HOURS": 1
+}
