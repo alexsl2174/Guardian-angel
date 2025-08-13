@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Union, Optional
 import re
 
 # Import shared utility functions and global configurations
-import cogs.utils as utils 
+import cogs.utils as utils
 
 # This class defines the interactive View with buttons.
 class BumpBattleView(discord.ui.View):
@@ -19,7 +19,7 @@ class BumpBattleView(discord.ui.View):
         self.win_embed = win_embed
         self.leaderboard_embed = leaderboard_embed
         self.current_page = 0  # 0 for win embed, 1 for leaderboard embed
-    
+
     # Left arrow button to go back to the win announcement
     @discord.ui.button(emoji="⬅️", style=discord.ButtonStyle.secondary, disabled=True)
     async def left_arrow(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -36,6 +36,14 @@ class BumpBattleView(discord.ui.View):
         self.children[0].disabled = False  # Enable left arrow
         await interaction.response.edit_message(embed=self.leaderboard_embed, view=self)
 
+async def is_moderator(interaction: discord.Interaction) -> bool:
+    """Checks if the user has the Staff role."""
+    staff_role_id = utils.ROLE_IDS.get("Staff")
+    if not staff_role_id:
+        # If no staff role is configured, no one can use the command.
+        return False
+    return staff_role_id in [role.id for role in interaction.user.roles]
+
 
 class Economy(commands.Cog):
     """A cog for the bot's core economy commands and leaderboards."""
@@ -46,13 +54,13 @@ class Economy(commands.Cog):
         self.anagram_game_state = utils.load_anagram_game_state()
         self.anagram_words = utils.load_anagram_words()
         self.bump_battle_state = utils.load_bump_battle_state()
-        
+
         # Correctly load dynamic channel IDs from the bot_config dictionary
         # The bot_config dictionary is loaded from the BOT_CONFIG_FILE in utils.py
         self.bump_battle_channel_id = utils.bot_config.get("bump_battle_channel_id")
         self.vote_channel_id = utils.bot_config.get("vote_channel_id")
         self.announcements_channel_id = utils.bot_config.get("announcements_channel_id")
-        
+
         # Define cooldown times in seconds
         self.BUMP_COOLDOWN = 120
         self.POINT_COOLDOWN = 120
@@ -64,10 +72,10 @@ class Economy(commands.Cog):
         # It ensures that the anagram game task starts after the bot is connected.
         self.anagram_game_task.start()
         print("Anagram game task started.")
-    
+
     # --- Anagram Game Command and Loop ---
     @app_commands.command(name="start_anagram_game", description="[Moderator Only] Starts a new Anagram game immediately.")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.check(is_moderator)
     async def start_anagram_game(self, interaction: discord.Interaction):
         """Starts a new anagram game immediately."""
         anagram_state = utils.load_anagram_game_state()
@@ -78,7 +86,7 @@ class Economy(commands.Cog):
         if anagram_state.get('current_word'):
             await interaction.response.send_message("An anagram game is already in progress.", ephemeral=True)
             return
-        
+
         await interaction.response.send_message("Starting a new anagram game now!", ephemeral=True)
         # Manually trigger the task to start a game now
         await self.anagram_game_task()
@@ -88,7 +96,7 @@ class Economy(commands.Cog):
         """This task runs every hour to start a new anagram game."""
         anagram_state = utils.load_anagram_game_state()
         channel_id = anagram_state.get('channel_id')
-        
+
         if not channel_id:
             return
 
@@ -113,16 +121,16 @@ class Economy(commands.Cog):
         anagram_state['current_word'] = word
         anagram_state['shuffled_word'] = shuffled_word
         utils.save_anagram_game_state(anagram_state)
-        
+
         embed = discord.Embed(
             title="Game = Anagram",
             description=f"Guess the word: **{shuffled_word}** in 4 minutes",
             color=discord.Color.purple()
         )
         await channel.send(embed=embed)
-        
+
         await asyncio.sleep(240)
-        
+
         current_anagram_state = utils.load_anagram_game_state()
         if current_anagram_state.get('current_word') == word:
             await channel.send(f"Time's up! The correct answer was **{word}**.")
@@ -138,14 +146,14 @@ class Economy(commands.Cog):
 
         member = member or interaction.user
         user_balance = utils.get_user_money(member.id)
-        
+
         embed = discord.Embed(
             title=f"Balance for {member.display_name}",
             description=f"You have `{user_balance}` <a:starcoin:1280590254935380038>",
             color=discord.Color.green()
         )
         embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else member.default_avatar.url)
-        
+
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="coinflip", description="Flip a coin and bet money.")
@@ -171,7 +179,7 @@ class Economy(commands.Cog):
 
         coin_sides = ["head", "tail"]
         flip_result = random.choice(coin_sides)
-        
+
         embed = discord.Embed(title=f"Coin Flip Bet")
         embed.add_field(name="Your Choice", value=side.name, inline=False)
         embed.add_field(name="You Bet", value=f"<a:starcoin:1280590254935380038> {bet_amount}", inline=False)
@@ -189,7 +197,7 @@ class Economy(commands.Cog):
             utils.update_user_money(user_id, -losses)
             embed.add_field(name="Result", value=f"💔 You lost! You lost {losses} <a:starcoin:1280590254935380038>.", inline=False)
             embed.color = discord.Color.red()
-        
+
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="daily", description="Collect your daily reward!")
@@ -220,7 +228,7 @@ class Economy(commands.Cog):
             "unlocked a portal to a dimension filled with laughter and fun."
         ]
         daily_phrase = random.choice(daily_phrases)
-        
+
         embed = discord.Embed(
             description=f"You {daily_phrase}\n\nYou got **{reward}** <a:starcoin:1280590254935380038> for your daily reward!",
             color=discord.Color.blue()
@@ -228,7 +236,7 @@ class Economy(commands.Cog):
         embed.set_footer(text="Next Daily:")
         next_available_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=24*60*60)
         embed.timestamp = next_available_time
-        
+
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="crime", description="Attempt a crime for money!")
@@ -391,11 +399,11 @@ class Economy(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="modifybal", description="[Owner Only] Adds/removes balance for a user.")
-    @commands.is_owner()
+    @app_commands.command(name="modifybal", description="[Moderator Only] Adds/removes balance for a user.")
+    @app_commands.check(is_moderator)
     @app_commands.describe(member="The member to modify the balance of.", amount="The amount to add or remove.")
     async def modify_balance(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        """An owner-only command to manually adjust a user's balance."""
+        """A moderator command to manually adjust a user's balance."""
         user_id = member.id
         utils.update_user_money(user_id, amount)
         
@@ -508,27 +516,23 @@ class Economy(commands.Cog):
 
         # Bump battle game logic
         if self.bump_battle_channel_id and message.channel.id == self.bump_battle_channel_id:
-            bump_battle_state = utils.load_bump_battle_state()
             user_id = str(message.author.id)
             now = datetime.datetime.now()
+            vote_cooldowns = utils.load_vote_cooldowns()
 
             cooldown_type = None
             if "sub point" in message.content.lower() or "dom point" in message.content.lower():
                 cooldown_type = "point"
             elif "sub bump" in message.content.lower() or "dom bump" in message.content.lower():
                 cooldown_type = "bump"
-                
-            cooldown_seconds = None
-            if cooldown_type == "point":
-                cooldown_seconds = self.POINT_COOLDOWN
-            elif cooldown_type == "bump":
-                cooldown_seconds = self.BUMP_COOLDOWN
+            
+            if cooldown_type:
+                cooldown_seconds = self.POINT_COOLDOWN if cooldown_type == "point" else self.BUMP_COOLDOWN
+                user_cooldowns = vote_cooldowns.get(user_id, {})
+                last_time = user_cooldowns.get(cooldown_type)
 
-            if cooldown_seconds:
-                vote_cooldowns = utils.load_vote_cooldowns()
-                if user_id in vote_cooldowns and now < datetime.datetime.fromisoformat(vote_cooldowns[user_id]) + datetime.timedelta(seconds=cooldown_seconds):
-                    last_vote_time = datetime.datetime.fromisoformat(vote_cooldowns[user_id])
-                    time_left = (last_vote_time + datetime.timedelta(seconds=cooldown_seconds)) - now
+                if last_time and now < datetime.datetime.fromisoformat(last_time) + datetime.timedelta(seconds=cooldown_seconds):
+                    time_left = (datetime.datetime.fromisoformat(last_time) + datetime.timedelta(seconds=cooldown_seconds)) - now
                     minutes = time_left.seconds // 60
                     seconds = time_left.seconds % 60
                     
@@ -548,9 +552,12 @@ class Economy(commands.Cog):
                         await message.channel.send(f"{message.author.mention} Stop trying to get a point, you will have to wait for **{minutes}m** and **{seconds}s**!")
                     return
                 
-                vote_cooldowns[user_id] = now.isoformat()
+                # Update cooldown timestamp for the specific action
+                user_cooldowns[cooldown_type] = now.isoformat()
+                vote_cooldowns[user_id] = user_cooldowns
                 utils.save_vote_cooldowns(vote_cooldowns)
             
+            bump_battle_state = utils.load_bump_battle_state()
             if "sub point" in message.content.lower() or "sub bump" in message.content.lower():
                 bump_battle_state['sub']['points'] += 1
                 if user_id not in bump_battle_state['sub']['users']:
@@ -598,7 +605,15 @@ class Economy(commands.Cog):
             vote_cooldowns = utils.load_vote_cooldowns()
 
             if "sub vote" in message.content.lower():
-                if user_id not in vote_cooldowns or now > datetime.datetime.fromisoformat(vote_cooldowns[user_id]) + datetime.timedelta(seconds=self.VOTE_COOLDOWN):
+                user_cooldowns = vote_cooldowns.get(user_id, {})
+                last_time = user_cooldowns.get("vote")
+
+                if last_time and now < datetime.datetime.fromisoformat(last_time) + datetime.timedelta(seconds=self.VOTE_COOLDOWN):
+                    time_left = (datetime.datetime.fromisoformat(last_time) + datetime.timedelta(seconds=self.VOTE_COOLDOWN)) - now
+                    minutes = time_left.seconds // 60
+                    seconds = time_left.seconds % 60
+                    await message.channel.send(f"You have already voted! You can vote again in {minutes} minutes and {seconds} seconds.")
+                else:
                     bump_battle_state = utils.load_bump_battle_state()
                     bump_battle_state['sub']['points'] += 1
                     if user_id not in bump_battle_state['sub']['users']:
@@ -609,18 +624,21 @@ class Economy(commands.Cog):
                         await self.end_bump_battle(message.guild, 'sub', bump_battle_state)
                     else:
                         utils.save_bump_battle_state(bump_battle_state)
-                        vote_cooldowns[user_id] = now.isoformat()
+                        user_cooldowns["vote"] = now.isoformat()
+                        vote_cooldowns[user_id] = user_cooldowns
                         utils.save_vote_cooldowns(vote_cooldowns)
                     
                     await message.channel.send(f"Thank you for voting for the Subs! You have been awarded 1 point.")
-                else:
-                    last_vote_time = datetime.datetime.fromisoformat(vote_cooldowns[user_id])
-                    time_left = (last_vote_time + datetime.timedelta(seconds=self.VOTE_COOLDOWN)) - now
+            elif "dom vote" in message.content.lower():
+                user_cooldowns = vote_cooldowns.get(user_id, {})
+                last_time = user_cooldowns.get("vote")
+
+                if last_time and now < datetime.datetime.fromisoformat(last_time) + datetime.timedelta(seconds=self.VOTE_COOLDOWN):
+                    time_left = (datetime.datetime.fromisoformat(last_time) + datetime.timedelta(seconds=self.VOTE_COOLDOWN)) - now
                     minutes = time_left.seconds // 60
                     seconds = time_left.seconds % 60
                     await message.channel.send(f"You have already voted! You can vote again in {minutes} minutes and {seconds} seconds.")
-            elif "dom vote" in message.content.lower():
-                if user_id not in vote_cooldowns or now > datetime.datetime.fromisoformat(vote_cooldowns[user_id]) + datetime.timedelta(seconds=self.VOTE_COOLDOWN):
+                else:
                     bump_battle_state = utils.load_bump_battle_state()
                     bump_battle_state['dom']['points'] += 1
                     if user_id not in bump_battle_state['dom']['users']:
@@ -631,16 +649,11 @@ class Economy(commands.Cog):
                         await self.end_bump_battle(message.guild, 'dom', bump_battle_state)
                     else:
                         utils.save_bump_battle_state(bump_battle_state)
-                        vote_cooldowns[user_id] = now.isoformat()
+                        user_cooldowns["vote"] = now.isoformat()
+                        vote_cooldowns[user_id] = user_cooldowns
                         utils.save_vote_cooldowns(vote_cooldowns)
                     
                     await message.channel.send(f"Thank you for voting for the Doms! You have been awarded 1 point.")
-                else:
-                    last_vote_time = datetime.datetime.fromisoformat(vote_cooldowns[user_id])
-                    time_left = (last_vote_time + datetime.timedelta(seconds=self.VOTE_COOLDOWN)) - now
-                    minutes = time_left.seconds // 60
-                    seconds = time_left.seconds % 60
-                    await message.channel.send(f"You have already voted! You can vote again in {minutes} minutes and {seconds} seconds.")
 
     async def end_bump_battle(self, guild: discord.Guild, winner: str, state: Dict[str, Any]):
         """A helper function to announce the end of a bump battle and distribute rewards."""

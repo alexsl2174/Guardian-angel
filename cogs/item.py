@@ -6,6 +6,7 @@ import json
 from typing import List, Dict, Any, Union, Optional
 import re
 import textwrap
+from collections import Counter
 
 # Import shared utility functions and global configurations
 import cogs.utils as utils 
@@ -14,6 +15,16 @@ import cogs.utils as utils
 ASSETS_DIR = "assets"
 # Define the shop items file for administrative commands
 SHOP_ITEMS_FILE = os.path.join("data", "shop_items.json")
+
+# --- Autocomplete function for item names ---
+async def item_autocomplete(interaction: discord.Interaction, current: str):
+    items_data = utils.load_data(SHOP_ITEMS_FILE, [])
+    choices = [
+        app_commands.Choice(name=item['name'], value=item['name'])
+        for item in items_data
+        if current.lower() in item['name'].lower()
+    ]
+    return choices[:25] # Discord has a limit of 25 choices
 
 # --- UI Views for Item Commands (Now only used for item group commands) ---
 
@@ -34,8 +45,8 @@ class InventorySelect(discord.ui.Select):
             if not item_data or not item_data.get('role_to_give'):
                 return await interaction.response.send_message(f"You cannot use '{item_name}'.", ephemeral=True)
             
-            user_inventory = utils.load_inventory(interaction.user.id)
-            if item_name not in user_inventory['items']:
+            user_inventory = utils.load_user_inventory(interaction.user.id)
+            if item_name not in user_inventory.get('items', {}):
                 return await interaction.response.send_message(f"You don't have '{item_name}' to use.", ephemeral=True)
             
             role = discord.utils.get(interaction.guild.roles, name=item_data['role_to_give'])
@@ -71,6 +82,7 @@ class ItemGroup(app_commands.Group):
         self.main_guild_id = utils.MAIN_GUILD_ID
     
     @app_commands.command(name="info", description="Get more information about a specific item.")
+    @app_commands.autocomplete(item_name=item_autocomplete)
     @app_commands.describe(item_name="The name of the item to get info for.")
     async def item_info_command(self, interaction: discord.Interaction, item_name: str):
         if interaction.guild and interaction.guild.id != self.main_guild_id:
@@ -103,13 +115,14 @@ class ItemGroup(app_commands.Group):
         await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
     
     @app_commands.command(name="use", description="Use an item from your inventory.")
+    @app_commands.autocomplete(item_name=item_autocomplete)
     @app_commands.describe(item_name="The name of the item you want to use.")
     async def item_use(self, interaction: discord.Interaction, item_name: str):
         if interaction.guild and interaction.guild.id != self.main_guild_id:
             return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
         
         user_id = str(interaction.user.id)
-        inventory_data = utils.load_inventory(user_id)
+        inventory_data = utils.load_user_inventory(user_id)
 
         if not inventory_data.get('items', {}).get(item_name.lower()):
             return await interaction.response.send_message(f"You don't have '{item_name}' to use.", ephemeral=True)
@@ -130,7 +143,7 @@ class ItemGroup(app_commands.Group):
                     user_items[item_name.lower()] -= 1
                 else:
                     del user_items[item_name.lower()]
-                utils.save_inventory(user_id, inventory_data)
+                utils.save_user_inventory(user_id, inventory_data)
 
                 await interaction.response.send_message(f"You used '{item_name}' and were granted the '{role.name}' role!", ephemeral=True)
             except discord.Forbidden:
@@ -139,13 +152,14 @@ class ItemGroup(app_commands.Group):
             await interaction.response.send_message("I couldn't grant that role. The role might not exist or my permissions are too low.", ephemeral=True)
 
     @app_commands.command(name="sell", description="Sell an item from your inventory for half its price.")
+    @app_commands.autocomplete(item_name=item_autocomplete)
     @app_commands.describe(item_name="The name of the item you want to sell.")
     async def item_sell(self, interaction: discord.Interaction, item_name: str):
         if interaction.guild and interaction.guild.id != self.main_guild_id:
             return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
 
         user_id = str(interaction.user.id)
-        inventory_data = utils.load_inventory(user_id)
+        inventory_data = utils.load_user_inventory(user_id)
         
         if not inventory_data.get('items', {}).get(item_name.lower()):
             return await interaction.response.send_message("You don't have that item in your inventory.", ephemeral=True)
@@ -162,7 +176,7 @@ class ItemGroup(app_commands.Group):
         else:
             del user_items[item_name.lower()]
         
-        utils.save_inventory(user_id, inventory_data)
+        utils.save_user_inventory(user_id, inventory_data)
         utils.update_user_money(interaction.user.id, sell_price)
         
         await interaction.response.send_message(f"You sold '{item_name}' for 🪙 {sell_price}!", ephemeral=True)
@@ -172,16 +186,19 @@ class ItemGroup(app_commands.Group):
         if interaction.guild and interaction.guild.id != self.main_guild_id:
             return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
         
-        user_inventory_data = utils.load_inventory(interaction.user.id)
+        user_inventory_data = utils.load_user_inventory(interaction.user.id)
         
         if not user_inventory_data or (not user_inventory_data.get('items') and not user_inventory_data.get('nets')):
             return await interaction.response.send_message("Your inventory is empty.", ephemeral=True)
 
         embed = discord.Embed(
             title=f"🎒 {interaction.user.display_name}'s Inventory",
+            description="Your current inventory, page 1/1.",
             color=discord.Color.blue()
         )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
         
+        # Handle equipped net
         equipped_net = user_inventory_data.get('equipped_net')
         if equipped_net:
             nets = user_inventory_data.get('nets', [])
@@ -189,22 +206,28 @@ class ItemGroup(app_commands.Group):
             if equipped_net_data:
                 embed.add_field(name="Equipped Net", value=f"🎣 {equipped_net_data['name']} (Durability: {equipped_net_data['durability']})", inline=False)
         
+        # Handle other items
         items = user_inventory_data.get('items', {})
         if items:
             item_list = []
             for item_name, count in items.items():
-                item_list.append(f"**{item_name.capitalize()}** x{count}")
+                item_data = utils.get_item_data(item_name)
+                item_emoji = utils.get_item_emoji(item_name, item_data.get("emoji")) if item_data else "🛒"
+                item_list.append(f"{item_emoji} {item_name.capitalize()} x{count}")
             embed.add_field(name="Other Items", value="\n".join(item_list), inline=False)
-        else:
-            embed.add_field(name="Other Items", value="You have no other items in your inventory.", inline=False)
-
+        
+        # Handle unequipped nets, grouping them by name
         unequipped_nets = [net for net in user_inventory_data.get('nets', []) if net['name'] != equipped_net]
         if unequipped_nets:
+            net_counts = Counter(net['name'] for net in unequipped_nets)
             net_list = []
-            for net in unequipped_nets:
-                net_list.append(f"🎣 {net['name']} (Durability: {net['durability']})")
+            for net_name, count in net_counts.items():
+                net_emoji = "🎣" 
+                durability = next((n['durability'] for n in unequipped_nets if n['name'] == net_name), 'N/A')
+                net_list.append(f"{net_emoji} {net_name} (Durability: {durability}) x{count}")
+            
             embed.add_field(name="Unequipped Nets", value="\n".join(net_list), inline=False)
-
+        
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -259,7 +282,7 @@ class Items(commands.Cog):
         await interaction.response.send_message(f"✅ Item `{name}` has been added to the store.", ephemeral=True)
 
     @app_commands.command(name="edititem", description="Edits an existing item in the store (Admin only).")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.autocomplete(item_name=item_autocomplete)
     @app_commands.describe(
         item_name="The name of the item to edit.",
         new_name="The new name for the item (optional).",
@@ -297,6 +320,7 @@ class Items(commands.Cog):
         await interaction.followup.send(f"✅ Item `{item_name}` has been updated.", ephemeral=True)
     
     @app_commands.command(name="removeitem", description="Removes an item from the store (Admin only).")
+    @app_commands.autocomplete(item_name=item_autocomplete)
     @app_commands.checks.has_permissions(manage_guild=True)
     @app_commands.describe(item_name="The name of the item to remove.")
     async def remove_item(self, interaction: discord.Interaction, item_name: str):

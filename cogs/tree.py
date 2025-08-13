@@ -21,7 +21,7 @@ COOLDOWN_SECONDS = 7200  # 2 hours
 REGULAR_CATCH_CHANCE = 0.85
 FAILED_CATCH_CHANCE = 0.10
 SHINY_FOUND_CHANCE = 0.05
-SHINY_CATCH_SUCCESS_CHANCE = 0.50
+SHINY_CATCH_SUCCESS_CHANCE = 0.07 # 7% success rate per attempt
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc)
@@ -161,26 +161,47 @@ class TreeGame(commands.Cog):
             self.cog = cog
             self.interaction = interaction
             self.bug_info = bug_info
+            self.catch_attempts = 3
+            self.message = None
+            self.last_attempt_time = now()
             
             catch_button = Button(label="Try to Catch", style=discord.ButtonStyle.secondary)
             catch_button.callback = self.catch_callback
             self.add_item(catch_button)
+        
+        async def on_timeout(self) -> None:
+            if self.message:
+                for item in self.children:
+                    item.disabled = True
+                await self.message.edit(content="The shiny bug has flown away because you ran out of time!", view=self)
 
         async def catch_callback(self, interaction: discord.Interaction):
+            if interaction.user != self.interaction.user:
+                return await interaction.response.send_message("Only the person who found this shiny bug can try to catch it!", ephemeral=True)
+
             await interaction.response.defer()
+            
+            # Check for per-try timeout
+            if (now() - self.last_attempt_time).total_seconds() < 10:
+                remaining_time = 10 - (now() - self.last_attempt_time).total_seconds()
+                return await interaction.followup.send(f"You must wait {remaining_time:.1f} seconds before your next attempt.", ephemeral=True)
+
+            self.catch_attempts -= 1
+            self.last_attempt_time = now()
             user_id = str(interaction.user.id)
             
             bug_collection = load_bug_collection()
             user_data = bug_collection.get(user_id, {"caught": [], "xp": 0, "shinies_caught": []})
             
-            if random.random() < SHINY_CATCH_SUCCESS_CHANCE:
-                caught_bug_name = f"✨ Shiny {self.bug_info['name']}"
+            if random.random() < self.cog.SHINY_CATCH_SUCCESS_CHANCE:
+                caught_bug_name = f"Shiny {self.bug_info['name']}"
                 caught_bug_xp = self.bug_info['xp'] * 2
                 caught_bug_emoji = self.bug_info['emoji']
                 
                 user_data['shinies_caught'].append(caught_bug_name)
                 user_data['caught'].append(caught_bug_name)
                 user_data['xp'] = user_data.get('xp', 0) + caught_bug_xp
+                bug_collection[user_id] = user_data
                 save_bug_collection(bug_collection)
 
                 embed = discord.Embed(
@@ -189,17 +210,27 @@ class TreeGame(commands.Cog):
                     color=discord.Color.gold()
                 )
                 embed.set_thumbnail(url=self.bug_info['image_url'])
-            else:
-                caught_bug_name = f"Shiny {self.bug_info['name']}"
-                embed = discord.Embed(
-                    title=f"A shiny bug escaped!",
-                    description=f"The shiny **{caught_bug_name}** was too quick and flew away! 💨",
-                    color=discord.Color.red()
-                )
-                embed.set_thumbnail(url=self.bug_info['image_url'])
+                
+                for item in self.children:
+                    item.disabled = True
+                
+                await interaction.edit_original_response(embed=embed, view=self)
+                self.stop()
+                return
             
-            for item in self.children:
-                item.disabled = True
+            embed = discord.Embed(
+                title=f"The shiny bug dodged your net!",
+                description=f"You have **{self.catch_attempts}** attempt(s) left!",
+                color=discord.Color.red()
+            )
+            embed.set_thumbnail(url=self.bug_info['image_url'])
+            
+            if self.catch_attempts <= 0:
+                embed.title = "A shiny bug escaped!"
+                embed.description = f"The shiny bug was too quick and flew away! 💨"
+                for item in self.children:
+                    item.disabled = True
+                self.stop()
             
             await interaction.edit_original_response(embed=embed, view=self)
 
@@ -277,7 +308,7 @@ class TreeGame(commands.Cog):
                 await interaction.followup.send("The tree is too small to have bugs! Grow it to size 10 first.", ephemeral=False)
                 return
             
-            if roll < SHINY_FOUND_CHANCE:
+            if roll < self.cog.SHINY_FOUND_CHANCE:
                 caught_bug_info = random.choice(INSECT_LIST)
                 
                 embed = discord.Embed(
@@ -288,9 +319,10 @@ class TreeGame(commands.Cog):
                 embed.set_thumbnail(url=caught_bug_info['image_url'])
 
                 view = self.cog.ShinyCatchView(self.cog, interaction, caught_bug_info)
-                await interaction.followup.send(embed=embed, view=view)
+                message = await interaction.followup.send(embed=embed, view=view)
+                view.message = message
             
-            elif roll < SHINY_FOUND_CHANCE + REGULAR_CATCH_CHANCE:
+            elif roll < self.cog.SHINY_FOUND_CHANCE + self.cog.REGULAR_CATCH_CHANCE:
                 caught_bug_info = random.choice(INSECT_LIST)
                 caught_bug_name = caught_bug_info['name']
                 caught_bug_xp = caught_bug_info['xp']

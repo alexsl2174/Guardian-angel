@@ -6,6 +6,7 @@ import math
 from typing import Dict, Any, List, Optional
 import cogs.utils as utils
 
+
 # Define file paths for JSON data
 SHOP_ITEMS_FILE = os.path.join("data", "shop_items.json")
 USER_INVENTORY_FILE = os.path.join("data", "user_inventory.json")
@@ -23,7 +24,6 @@ class ShopCog(commands.Cog):
         self.shop_items = utils.load_data(SHOP_ITEMS_FILE, [])
         self.items_per_page = 8
 
-    # The ShopView class for displaying items with pagination
     class ShopView(discord.ui.View):
         def __init__(self, original_author_id: int, shop_items: list, items_per_page: int, cog):
             super().__init__(timeout=180)
@@ -47,7 +47,7 @@ class ShopCog(commands.Cog):
             options = []
             for item in items_to_display:
                 if 'id' in item:
-                    item_emoji = item.get("emoji", "🛒")
+                    item_emoji = utils.get_item_emoji(item['name'], item.get("emoji"))
                     options.append(
                         discord.SelectOption(
                             label=f"{item_emoji} {item.get('name', 'Unknown Item')} - <a:starcoin:1280590254935380038> {item.get('price', 0)}",
@@ -116,7 +116,6 @@ class ShopCog(commands.Cog):
 
             await interaction.response.defer()
             
-            # Use the single, consolidated buy function from utils.py
             await utils.handle_buy_item(interaction, item_to_buy, free_purchase=False)
 
     @app_commands.command(name="shop", description="Displays the items available for purchase in the store.")
@@ -156,7 +155,7 @@ class ShopCog(commands.Cog):
                 item_name = item.get("name", "Unknown Item")
                 item_description = item.get("description", "No description provided.")
                 
-                item_emoji = item.get("emoji", "🛒")
+                item_emoji = utils.get_item_emoji(item_name, item.get("emoji"))
                     
                 if item.get("type") == "net":
                     item_durability = item.get("durability", 0)
