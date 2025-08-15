@@ -164,6 +164,58 @@ class Economy(commands.Cog):
         embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else member.default_avatar.url)
 
         await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="checkin", description="Check in daily for role-based rewards.")
+    @app_commands.checks.cooldown(1, 24*60*60)
+    async def checkin(self, interaction: discord.Interaction):
+        """Allows a user to check in daily and claim rewards based on their roles."""
+        if interaction.guild and interaction.guild.id != self.main_guild_id:
+            return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
+            
+        # Check if the command is being used in the correct channel
+        if interaction.channel_id != utils.CHECKIN_CHANNEL_ID:
+            await interaction.response.send_message("This command can only be used in the designated check-in channel.", ephemeral=True)
+            return
+
+        user_id = interaction.user.id
+        member = interaction.user
+        
+        # Base reward for checking in
+        base_reward = 25
+        total_reward = base_reward
+        reward_messages = [f"✅ Role income successfully collected!", f"1 - @ Timed 16hr ~ Daily Check In | {base_reward} (cash)"]
+
+        # Get role IDs and check for them
+        saint_role_id = utils.ROLE_IDS.get("Saint")
+        sinner_role_id = utils.ROLE_IDS.get("sinner")
+        booster_role_id = utils.ROLE_IDS.get("booster")
+        
+        # Check for specific roles
+        if discord.utils.get(member.roles, id=saint_role_id):
+            total_reward += 100
+            reward_messages.append(f"2 - Saint | 100 coins")
+        if discord.utils.get(member.roles, id=sinner_role_id):
+            total_reward += 150
+            reward_messages.append(f"3 - sinner | 150 coins")
+        if discord.utils.get(member.roles, id=booster_role_id):
+            total_reward += 300
+            reward_messages.append(f"4 - Booster | 300 coins")
+        
+        # Check for daily timed roles from utils.py
+        now = datetime.datetime.now(datetime.timezone.utc)
+        weekday_name = now.strftime('%A').lower()
+        role_name = f"{weekday_name}_role"
+        role_id = utils.ROLE_IDS.get(role_name)
+        
+        if role_id and discord.utils.get(member.roles, id=role_id):
+            total_reward += 250
+            reward_messages.append(f"{len(reward_messages)} - {role_name.replace('_', ' ').title()} | 250 coins")
+
+        if total_reward > base_reward:
+            utils.update_user_money(user_id, total_reward)
+            await interaction.response.send_message("\n".join(reward_messages), ephemeral=False)
+        else:
+            await interaction.response.send_message(f"✅ Role income successfully collected!\n1 - Timed 16hr ~ Daily Check In | {base_reward} (cash)", ephemeral=False)
 
     @app_commands.command(name="deposit", description="Deposits money from your wallet to your bank.")
     @app_commands.describe(amount="The amount of money to deposit. Use 'all' to deposit everything.")
@@ -544,7 +596,19 @@ class Economy(commands.Cog):
         """Listens for messages to handle anagram and bump battle games."""
         if message.author.bot or not message.guild:
             return
-            
+        
+        # Check for daily message reward
+        if message.channel.id == utils.DAILY_MESSAGE_REWARD_CHANNEL_ID:
+            user_id_str = str(message.author.id)
+            cooldowns = utils.load_daily_message_cooldowns()
+            last_reward_date_str = cooldowns.get(user_id_str)
+            today_str = datetime.date.today().isoformat()
+
+            if last_reward_date_str != today_str:
+                utils.update_user_money(message.author.id, 25)
+                cooldowns[user_id_str] = today_str
+                utils.save_daily_message_cooldowns(cooldowns)
+
         # Anagram game logic
         anagram_state = utils.load_anagram_game_state()
         if message.channel.id == anagram_state.get('channel_id'):

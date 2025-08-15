@@ -47,6 +47,8 @@ MEDAL_OVERLAY_FILE = os.path.join(ASSETS_DIR, "winner_overlay.png")
 
 # Other file paths for various bot features
 ADVENTURE_AI_RESTRICTIONS_FILE = os.path.join(DATA_DIR, 'adventure_ai_restrictions.txt')
+DAILY_MESSAGE_COOLDOWNS_FILE = os.path.join(DATA_DIR, "daily_message_cooldowns.json")
+BOOSTER_REWARDS_FILE = os.path.join(DATA_DIR, "booster_rewards.json")
 ACTIVE_ADVENTURE_GAMES_FILE = os.path.join(DATA_DIR, 'active_adventure_games.json')
 USER_ROLES_FILE = os.path.join(DATA_DIR, 'user_roles.json')
 BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
@@ -81,6 +83,21 @@ USER_INVENTORY_FILE = os.path.join(DATA_DIR, "user_inventory.json")
 # --- Configuration Loading ---
 FIRST_COUNT_REWARD = 25
 FIRST_COUNT_ROLE = "First Timer Counter"
+
+def load_daily_posts_channels():
+     return DAILY_POSTS_CHANNELS
+
+def load_daily_message_cooldowns() -> Dict[str, str]:
+    return load_data(DAILY_MESSAGE_COOLDOWNS_FILE, {})
+
+def save_daily_message_cooldowns(data: Dict[str, str]):
+    save_data(data, DAILY_MESSAGE_COOLDOWNS_FILE)
+
+def load_booster_rewards() -> Dict[str, str]:
+    return load_data(BOOSTER_REWARDS_FILE, {})
+
+def save_booster_rewards(data: Dict[str, str]):
+    save_data(data, BOOSTER_REWARDS_FILE)
 
 def load_data(file_path: str, default_value: Any = None):
     """Loads data from a JSON file, returning a default value if the file is not found or is corrupted."""
@@ -228,12 +245,15 @@ def update_dynamic_role(role_name, role_id):
     reload_globals()
 
 def reload_globals():
-    global MAIN_GUILD_ID, TEST_CHANNEL_ID, PLAYER_ROLE_ID, ADVENTURE_MAIN_CHANNEL_ID, CHAT_REVIVE_CHANNEL_ID, DAILY_COMMENTS_CHANNEL_ID, SELF_ROLES_CHANNEL_ID, SINNER_CHAT_CHANNEL_ID, BUMDAY_MONDAY_CHANNEL_ID, TITS_OUT_TUESDAY_CHANNEL_ID, WET_WEDNESDAY_CHANNEL_ID, FURBABY_THURSDAY_CHANNEL_ID, FRISKY_FRIDAY_CHANNEL_ID, SELFIE_SATURDAY_CHANNEL_ID, SLUTTY_SUNDAY_CHANNEL_ID, ANAGRAM_CHANNEL_ID, BUMP_BATTLE_CHANNEL_ID, ANNOUNCEMENTS_CHANNEL_ID, VOTE_CHANNEL_ID, VOTE_COOLDOWN_HOURS, ROLE_IDS, CHAT_REVIVE_ROLE_ID, ANNOUNCEMENTS_ROLE_ID, MOD_ROLE_ID, TIMED_CHANNELS, DAILY_POSTS_CHANNELS, TREE_CHANNEL_ID, COUNTING_CHANNEL_ID, REVIVE_INTERVAL_HOURS, QOTD_CHANNEL_ID, QOTD_ROLE_ID
-    
+    global MAIN_GUILD_ID, TEST_CHANNEL_ID, PLAYER_ROLE_ID, ADVENTURE_MAIN_CHANNEL_ID, CHAT_REVIVE_CHANNEL_ID, DAILY_COMMENTS_CHANNEL_ID, SELF_ROLES_CHANNEL_ID, SINNER_CHAT_CHANNEL_ID, BUMDAY_MONDAY_CHANNEL_ID, TITS_OUT_TUESDAY_CHANNEL_ID, WET_WEDNESDAY_CHANNEL_ID, FURBABY_THURSDAY_CHANNEL_ID, FRISKY_FRIDAY_CHANNEL_ID, SELFIE_SATURDAY_CHANNEL_ID, SLUTTY_SUNDAY_CHANNEL_ID, ANAGRAM_CHANNEL_ID, BUMP_BATTLE_CHANNEL_ID, ANNOUNCEMENTS_CHANNEL_ID, VOTE_CHANNEL_ID, VOTE_COOLDOWN_HOURS, ROLE_IDS, CHAT_REVIVE_ROLE_ID, ANNOUNCEMENTS_ROLE_ID, MOD_ROLE_ID, TIMED_CHANNELS, DAILY_POSTS_CHANNELS, TREE_CHANNEL_ID, COUNTING_CHANNEL_ID, REVIVE_INTERVAL_HOURS, QOTD_CHANNEL_ID, QOTD_ROLE_ID, CHECKIN_CHANNEL_ID, DAILY_MESSAGE_REWARD_CHANNEL_ID, BOOSTER_REWARD_CHANNEL_ID
+
     bot_config_reloaded = load_data(BOT_CONFIG_FILE, {})
     
     # Reloading all global variables from the config
     QOTD_CHANNEL_ID = bot_config_reloaded.get("QOTD_CHANNEL_ID", TEST_CHANNEL_ID)
+    CHECKIN_CHANNEL_ID = bot_config.get("CHECKIN_CHANNEL_ID", None)
+    DAILY_MESSAGE_REWARD_CHANNEL_ID = bot_config.get("DAILY_MESSAGE_REWARD_CHANNEL_ID", None)
+    BOOSTER_REWARD_CHANNEL_ID = bot_config.get("BOOSTER_REWARD_CHANNEL_ID", None)
     QOTD_ROLE_ID = bot_config_reloaded.get("QOTD_ROLE_ID", None)
     MAIN_GUILD_ID = bot_config_reloaded.get("MAIN_GUILD_ID", None)
     TEST_CHANNEL_ID = bot_config_reloaded.get("TEST_CHANNEL_ID", 1403900596020580523)
@@ -265,6 +285,10 @@ def reload_globals():
     FRISKY_FRIDAY_CHANNEL_ID = bot_config_reloaded.get("FRISKY_FRIDAY_CHANNEL_ID", TEST_CHANNEL_ID)
     SELFIE_SATURDAY_CHANNEL_ID = bot_config_reloaded.get("SELFIE_SATURDAY_CHANNEL_ID", TEST_CHANNEL_ID)
     SLUTTY_SUNDAY_CHANNEL_ID = bot_config_reloaded.get("SLUTTY_SUNDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    CHECKIN_CHANNEL_ID = bot_config_reloaded.get("CHECKIN_CHANNEL_ID", None)
+    DAILY_MESSAGE_REWARD_CHANNEL_ID = bot_config_reloaded.get("DAILY_MESSAGE_REWARD_CHANNEL_ID", None)
+    BOOSTER_REWARD_CHANNEL_ID = bot_config_reloaded.get("BOOSTER_REWARD_CHANNEL_ID", None)
+
 
     ROLE_IDS = bot_config_reloaded.get("role_ids", {})
     CHAT_REVIVE_ROLE_ID = ROLE_IDS.get("chat_revive_role", None)
