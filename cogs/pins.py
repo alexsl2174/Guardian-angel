@@ -11,7 +11,7 @@ import cogs.utils as utils
 # Define the path to your data directory, typically one level up from cogs
 # Adjust this path if your 'data' folder is structured differently
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
-PINS_FILE = os.path.join(DATA_DIR, 'carl_ai_user_pins.json')
+PINS_FILE = os.path.join(DATA_DIR, 'user_pins.json')
 
 # Ensure the data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -53,8 +53,8 @@ def save_user_pins(user_id: int, pins: list[str]):
 class Pins(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Fix: Use a standard unicode emoji instead of a non-standard one.
-        self.PIN_EMOJI_NAME = "📌" 
+        # Updated to use the custom emoji
+        self.PIN_EMOJI_NAME = "<:sspins:1405590701030244412>" 
         self.MAX_PINS = 50 # Maximum pins per user
         self.main_guild_id = utils.MAIN_GUILD_ID
 
@@ -193,8 +193,9 @@ class Pins(commands.Cog):
         if not user_pins:
             await interaction.followup.send(
                 embed=discord.Embed(
-                    title="You have no pins! 📌",
-                    description="React with the Pin (📌) emoji to pin associated messages.\n"
+                    # Updated to use the custom emoji
+                    title="You have no pins! <:sspins:1405590701030244412>",
+                    description="React with the Pin (<:sspins:1405590701030244412>) emoji to pin associated messages.\n"
                                 "(You can immediately unreact, it will stay pinned!)",
                     color=discord.Color.blue()
                 ),
@@ -245,7 +246,8 @@ class Pins(commands.Cog):
         for line in pin_list_str:
             if len(current_description) + len(line) + 1 > max_desc_length:
                 embeds.append(discord.Embed(
-                    title="📌 Personal Pins (Cont.)",
+                    # Updated to use the custom emoji
+                    title="<:sspins:1405590701030244412> Personal Pins (Cont.)",
                     description=current_description,
                     color=discord.Color.blue()
                 ))
@@ -254,9 +256,10 @@ class Pins(commands.Cog):
                 current_description += "\n" + line
         
         if current_description:
-            # First embed has the main title
+            # First embed has the main title (will be sent as a followup message)
             first_embed = discord.Embed(
-                title="📌 Personal Pins:",
+                # Updated to use the custom emoji
+                title="<:sspins:1405590701030244412> Personal Pins:",
                 description=current_description.strip(), 
                 color=discord.Color.blue()
             )

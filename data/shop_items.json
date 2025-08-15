@@ -233,7 +233,7 @@
         "type": "cosmetic",
         "requirement": null,
         "image_filename": "brattpass.png",
-        "emoji": "<:brattpass:1405029141467762700>"
+        "emoji": "<:brattpass:1405469249559990322>"
     },
     {
         "id": 23,
@@ -244,6 +244,6 @@
         "type": "cosmetic",
         "requirement": null,
         "image_filename": "brattpass.png",
-        "emoji": "<:brattpass:1405029141467762700>"
+        "emoji": "<:brattpass:1405469249559990322>"
     }
 ]

@@ -1,10 +1,10 @@
 {
-    "counting_channel_id": 1404621330787074090,
-    "current_count": 0,
-    "last_counter_id": null,
+    "counting_channel_id": 1399105199771095240,
+    "current_count": 2,
+    "last_counter_id": 1165648811134304296,
     "guess_game_active": false,
     "guess_game_number": 0,
     "guess_attempts": 0,
-    "lucky_number": 0,
-    "lucky_number_active": false
+    "lucky_number": 4,
+    "lucky_number_active": true
 }

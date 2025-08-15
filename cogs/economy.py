@@ -37,12 +37,17 @@ class BumpBattleView(discord.ui.View):
         await interaction.response.edit_message(embed=self.leaderboard_embed, view=self)
 
 async def is_moderator(interaction: discord.Interaction) -> bool:
-    """Checks if the user has the Staff role."""
-    staff_role_id = utils.ROLE_IDS.get("Staff")
-    if not staff_role_id:
-        # If no staff role is configured, no one can use the command.
+    """Checks if the user has a Staff role."""
+    staff_roles = utils.ROLE_IDS.get("Staff")
+    if not staff_roles:
         return False
-    return staff_role_id in [role.id for role in interaction.user.roles]
+    
+    # Ensure staff_roles is a list to handle both single ID and list of IDs
+    if not isinstance(staff_roles, list):
+        staff_roles = [staff_roles]
+
+    user_role_ids = [role.id for role in interaction.user.roles]
+    return any(role_id in user_role_ids for role_id in staff_roles)
 
 
 class Economy(commands.Cog):
@@ -56,7 +61,6 @@ class Economy(commands.Cog):
         self.bump_battle_state = utils.load_bump_battle_state()
 
         # Correctly load dynamic channel IDs from the bot_config dictionary
-        # The bot_config dictionary is loaded from the BOT_CONFIG_FILE in utils.py
         self.bump_battle_channel_id = utils.bot_config.get("bump_battle_channel_id")
         self.vote_channel_id = utils.bot_config.get("vote_channel_id")
         self.announcements_channel_id = utils.bot_config.get("announcements_channel_id")
@@ -74,15 +78,15 @@ class Economy(commands.Cog):
         print("Anagram game task started.")
 
     # --- Anagram Game Command and Loop ---
-    @app_commands.command(name="start_anagram_game", description="[Moderator Only] Starts a new Anagram game immediately.")
-    @app_commands.check(is_moderator)
+    @app_commands.command(name="start_anagram_game", description="Starts a new Anagram game immediately.")
     async def start_anagram_game(self, interaction: discord.Interaction):
         """Starts a new anagram game immediately."""
-        anagram_state = utils.load_anagram_game_state()
-        if not anagram_state.get('channel_id'):
-            await interaction.response.send_message("Please set an anagram channel first using `/set_anagram_channel`.", ephemeral=True)
+        anagram_channel_id = utils.bot_config.get('ANAGRAM_CHANNEL_ID')
+        if not anagram_channel_id:
+            await interaction.response.send_message("The anagram channel is not set. Please use an admin command to set it first.", ephemeral=True)
             return
 
+        anagram_state = utils.load_anagram_game_state()
         if anagram_state.get('current_word'):
             await interaction.response.send_message("An anagram game is already in progress.", ephemeral=True)
             return
@@ -94,15 +98,18 @@ class Economy(commands.Cog):
     @tasks.loop(hours=1)
     async def anagram_game_task(self):
         """This task runs every hour to start a new anagram game."""
-        anagram_state = utils.load_anagram_game_state()
-        channel_id = anagram_state.get('channel_id')
-
-        if not channel_id:
+        anagram_channel_id = utils.bot_config.get('ANAGRAM_CHANNEL_ID')
+        if not anagram_channel_id:
             return
 
-        channel = self.bot.get_channel(channel_id)
+        channel = self.bot.get_channel(anagram_channel_id)
         if not channel:
-            print(f"Anagram task failed: Channel with ID {channel_id} not found.")
+            print(f"Anagram task failed: Channel with ID {anagram_channel_id} not found.")
+            return
+
+        anagram_state = utils.load_anagram_game_state()
+        if anagram_state.get('current_word'):
+            print("Anagram task skipped: A game is already in progress.")
             return
 
         # Use the AI to generate a new word
@@ -120,6 +127,7 @@ class Economy(commands.Cog):
 
         anagram_state['current_word'] = word
         anagram_state['shuffled_word'] = shuffled_word
+        anagram_state['channel_id'] = anagram_channel_id
         utils.save_anagram_game_state(anagram_state)
 
         embed = discord.Embed(
@@ -145,16 +153,46 @@ class Economy(commands.Cog):
             return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
 
         member = member or interaction.user
-        user_balance = utils.get_user_money(member.id)
-
+        wallet_balance = utils.get_user_money(member.id)
+        bank_balance = utils.get_user_bank_money(member.id)
+        
         embed = discord.Embed(
             title=f"Balance for {member.display_name}",
-            description=f"You have `{user_balance}` <a:starcoin:1280590254935380038>",
+            description=f"**Wallet:** `{wallet_balance}` <a:starcoin:1280590254935380038>\n**Bank:** `{bank_balance}` <a:starcoin:1280590254935380038>",
             color=discord.Color.green()
         )
         embed.set_thumbnail(url=member.display_avatar.url if member.display_avatar else member.default_avatar.url)
 
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="deposit", description="Deposits money from your wallet to your bank.")
+    @app_commands.describe(amount="The amount of money to deposit. Use 'all' to deposit everything.")
+    async def deposit(self, interaction: discord.Interaction, amount: str):
+        """Deposits a specified amount of money from the user's wallet to their bank."""
+        if interaction.guild and interaction.guild.id != self.main_guild_id:
+            return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
+
+        user_id = interaction.user.id
+        wallet_balance = utils.get_user_money(user_id)
+
+        if amount.lower() == 'all':
+            deposit_amount = wallet_balance
+        else:
+            try:
+                deposit_amount = int(amount)
+            except ValueError:
+                await interaction.response.send_message("You must deposit a positive number or 'all'.", ephemeral=True)
+                return
+
+        if deposit_amount <= 0:
+            await interaction.response.send_message("You must deposit a positive amount.", ephemeral=True)
+            return
+        if deposit_amount > wallet_balance:
+            await interaction.response.send_message(f"You don't have that much money in your wallet! You only have {wallet_balance} <a:starcoin:1280590254935380038>.", ephemeral=True)
+            return
+
+        utils.transfer_money(user_id, deposit_amount, 'wallet', 'bank')
+        await interaction.response.send_message(f"Successfully deposited {deposit_amount} <a:starcoin:1280590254935380038> into your bank. Your new wallet balance is {utils.get_user_money(user_id)} <a:starcoin:1280590254935380038>.", ephemeral=True)
 
     @app_commands.command(name="coinflip", description="Flip a coin and bet money.")
     @app_commands.describe(side="Heads or Tails", bet_amount="The amount of money to bet.")
@@ -434,10 +472,15 @@ class Economy(commands.Cog):
             balances = utils.load_data(utils.BALANCES_FILE)
             leaderboard_entries = []
             for user_id_str, money in balances.items():
-                if money > 0:
+                if isinstance(money, dict):
+                    total_money = money.get("wallet", 0) + money.get("bank", 0)
+                else:
+                    total_money = money
+                
+                if total_money > 0:
                     member = guild.get_member(int(user_id_str))
                     if member:
-                        leaderboard_entries.append((member.display_name, money))
+                        leaderboard_entries.append((member.display_name, total_money))
             leaderboard_entries.sort(key=lambda x: x[1], reverse=True)
             
             description = "\n".join([f"{i+1}. **{name}** - {money} <a:starcoin:1280590254935380038>" for i, (name, money) in enumerate(leaderboard_entries[:10])])
@@ -474,15 +517,18 @@ class Economy(commands.Cog):
             
         elif board == "bumps":
             bump_battle_state = utils.load_bump_battle_state()
-            all_bump_users = {**bump_battle_state['sub']['users'], **bump_battle_state['dom']['users']}
+            sub_users = bump_battle_state.get('sub', {}).get('users', {})
+            dom_users = bump_battle_state.get('dom', {}).get('users', {})
+
+            all_bump_users = {**sub_users, **dom_users}
             leaderboard_entries = []
             for user_id_str, count in all_bump_users.items():
                 member = guild.get_member(int(user_id_str))
                 if member:
                     leaderboard_entries.append((member.display_name, count))
+            
             leaderboard_entries.sort(key=lambda x: x[1], reverse=True)
-
-            description = "\n".join([f"{i+1}. **{name}** - {count} points" for i, (name, count) in enumerate(leaderboard_entries[:10])])
+            description = "\n".join([f"{i+1}. **{name}** - {count} <a:bluecoin:1280590252817387593>" for i, (name, count) in enumerate(leaderboard_entries[:10])])
             embed.description = description if description else "No one has bumped yet!"
             embed.title += " (Bump Battle)"
         

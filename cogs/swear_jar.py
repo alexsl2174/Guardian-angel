@@ -109,7 +109,9 @@ class SwearJar(commands.Cog):
         swear_jar_data = utils.load_swear_jar_data()
         swears = swear_jar_data.get('words', [])
         
-        message_words = re.findall(r'\b\w+\b', message.content.lower())
+        # This is the updated, more flexible word-matching logic.
+        # It removes all non-alphanumeric characters and then splits the message into words.
+        message_words = re.sub(r'[^\w\s]','',message.content.lower()).split()
         
         for word in message_words:
             if word in swears:

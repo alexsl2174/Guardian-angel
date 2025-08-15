@@ -122,7 +122,7 @@ class CurrencyGroup(app_commands.Group):
         super().__init__(name="currency", description="Add or remove currency from a user.")
         
     @app_commands.command(name="add", description="Adds currency to a user's balance.")
-    @app_commands.checks.has_any_role(utils.ROLE_IDS["Staff"])
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     async def currency_add(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         await interaction.response.defer(ephemeral=True)
         if amount <= 0:
@@ -133,7 +133,7 @@ class CurrencyGroup(app_commands.Group):
         await interaction.followup.send(f"Successfully added {amount} coins to {member.mention}'s balance.", ephemeral=True)
 
     @app_commands.command(name="remove", description="Removes currency from a user's balance.")
-    @app_commands.checks.has_any_role(utils.ROLE_IDS["Staff"])
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     async def currency_remove(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         await interaction.response.defer(ephemeral=True)
         if amount <= 0:
@@ -156,7 +156,7 @@ class AdminTools(commands.Cog):
         channel="The channel to set."
     )
     @app_commands.autocomplete(channel_id_name=utils.channel_id_name_autocomplete)
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     async def set_channel(self, interaction: discord.Interaction, channel_id_name: str, channel: discord.TextChannel):
         """
         Sets a specific channel ID dynamically and reloads the configuration.
@@ -179,7 +179,7 @@ class AdminTools(commands.Cog):
         channel_id_name="The name of the channel ID to remove."
     )
     @app_commands.autocomplete(channel_id_name=utils.channel_id_name_autocomplete)
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     async def unset_channel(self, interaction: discord.Interaction, channel_id_name: str):
         """
         Removes a specific channel ID from the dynamic config.
@@ -203,7 +203,7 @@ class AdminTools(commands.Cog):
         role="The role to set."
     )
     @app_commands.autocomplete(role_id_name=utils.role_id_name_autocomplete)
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     async def set_role(self, interaction: discord.Interaction, role_id_name: str, role: discord.Role):
         """
         Sets a specific role ID dynamically and reloads the configuration.
@@ -222,7 +222,7 @@ class AdminTools(commands.Cog):
             await interaction.followup.send(f"An error occurred while saving the configuration: {e}")
             
     @app_commands.command(name="revivepref", description="Sets the time interval for periodic chat revival.")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     @app_commands.describe(
         hours="How often the chat revive should run in hours (e.g., 8).",
         test_revive="Set to True to run the revive immediately for testing."
@@ -251,6 +251,7 @@ class AdminTools(commands.Cog):
     async def on_ready(self):
         self.periodic_revive.start()
         self.daily_post_task.start()
+        self.check_timed_roles.start()
         print("Scheduled tasks started.")
 
     async def _run_revive_logic(self, is_test: bool = False):
@@ -304,21 +305,77 @@ class AdminTools(commands.Cog):
         
     @app_commands.command(name="add_update_global_timed_role", description="Adds or updates a global timed role with an expiration date.")
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def add_update_global_timed_role(self, interaction: discord.Interaction, role: discord.Role, year: int, month: int, day: int, hour: int = 0, minute: int = 0):
+    async def add_update_global_timed_role(self, interaction: discord.Interaction, role: discord.Role, duration_days: Optional[int] = None, year: Optional[int] = None, month: Optional[int] = None, day: Optional[int] = None, hour: int = 0, minute: int = 0):
         try:
-            expiration_date = datetime.datetime(year, month, day, hour, minute)
+            if duration_days is not None:
+                if duration_days <= 0:
+                    await interaction.response.send_message("The duration must be a positive number of days.", ephemeral=True)
+                    return
+                expiration_date = datetime.datetime.now() + datetime.timedelta(days=duration_days)
+            elif year is not None and month is not None and day is not None:
+                expiration_date = datetime.datetime(year, month, day, hour, minute)
+            else:
+                await interaction.response.send_message("You must provide either a `duration_days` or a full date (`year`, `month`, and `day`).", ephemeral=True)
+                return
+
             if expiration_date < datetime.datetime.now():
                 await interaction.response.send_message("The expiration date cannot be in the past.", ephemeral=True)
                 return
 
             guild_id = interaction.guild_id
             utils.save_timed_role_data(guild_id, role.id, expiration_date)
-            await interaction.response.send_message(f"Timed role {role.name} has been set to expire on {expiration_date}.", ephemeral=True)
+            await interaction.response.send_message(f"Timed role {role.mention} has been set to expire on {expiration_date}.", ephemeral=True)
 
         except ValueError as e:
             await interaction.response.send_message(f"Invalid date/time provided: {e}. Please use valid numbers for year, month, day, hour, and minute.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"An unexpected error occurred: {e}", ephemeral=True)
+
+    @tasks.loop(minutes=30)
+    async def check_timed_roles(self):
+        print("Checking for expired timed roles...")
+        all_timed_roles = utils.load_timed_roles()
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        
+        roles_to_remove = {}  # {guild_id: {role_id: [member_id, ...]}}
+        
+        for guild_id_str, roles_data in all_timed_roles.items():
+            guild = self.bot.get_guild(int(guild_id_str))
+            if not guild:
+                continue
+
+            for role_id_str, expiration_date_str in roles_data.items():
+                if expiration_date_str <= now:
+                    role = guild.get_role(int(role_id_str))
+                    if not role:
+                        continue
+                    
+                    for member in guild.members:
+                        if role in member.roles:
+                            if guild_id_str not in roles_to_remove:
+                                roles_to_remove[guild_id_str] = {}
+                            if role_id_str not in roles_to_remove[guild_id_str]:
+                                roles_to_remove[guild_id_str][role_id_str] = []
+                            roles_to_remove[guild_id_str][role_id_str].append(member)
+        
+        for guild_id_str, roles_data in roles_to_remove.items():
+            guild = self.bot.get_guild(int(guild_id_str))
+            if not guild:
+                continue
+                
+            for role_id_str, members in roles_data.items():
+                role = guild.get_role(int(role_id_str))
+                if not role:
+                    continue
+
+                for member in members:
+                    try:
+                        await member.remove_roles(role, reason="Timed role expiration.")
+                        print(f"Removed expired role {role.name} from {member.display_name}.")
+                    except discord.Forbidden:
+                        print(f"Could not remove role {role.name} from {member.display_name}. Bot lacks permissions.")
+                    except Exception as e:
+                        print(f"An error occurred while removing role from {member.display_name}: {e}")
 
     @tasks.loop(hours=24)
     async def daily_post_task(self):
@@ -385,12 +442,13 @@ class AdminTools(commands.Cog):
                 await message.channel.send(f"{message.author.mention}, you have been credited with 250 coins for your image post! Please post any comments in <#{utils.DAILY_COMMENTS_CHANNEL_ID}>.", delete_after=10)
                 
     @app_commands.command(name="verify", description="[Staff Only] Verify a member and grant them the 'Verified Access' role.")
-    @app_commands.checks.has_any_role(utils.ROLE_IDS.get("Staff", 0))
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     @app_commands.describe(member="The member to verify.")
     async def verify(self, interaction: discord.Interaction, member: discord.Member):
+        await interaction.response.defer(ephemeral=True)
         if interaction.guild and interaction.guild.id != utils.MAIN_GUILD_ID:
-            return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
-
+            return await interaction.followup.send("This command is only available on the main server.", ephemeral=True)
+            
         access_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("verified_access"))
         id_verified_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("id_verified"))
         visitor_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("Visitor"))
@@ -398,69 +456,100 @@ class AdminTools(commands.Cog):
         self_roles_channel_id = utils.SELF_ROLES_CHANNEL_ID
 
         if not access_role_obj or not id_verified_role_obj or not visitor_role_obj or not sinner_chat_channel:
-            return await interaction.response.send_message("One or more required roles or channels could not be found. Please check role IDs and channel IDs in settings.", ephemeral=True)
+            return await interaction.followup.send("One or more required roles or channels could not be found. Please check role IDs and channel IDs in settings.", ephemeral=True)
 
         try:
             await member.add_roles(access_role_obj, id_verified_role_obj, reason="Manually verified by a staff member.")
             await member.remove_roles(visitor_role_obj, reason="Member has been verified.")
             
+            # New line added to respond in the verification ticket
+            await interaction.followup.send("Thank you for verifying with us today.")
+
             if sinner_chat_channel:
-                embed_title = f"Welcome To The Sinners Side Of The Server ❧"
-                embed_description = f"You are now verified {member.mention}! Go to <#{self_roles_channel_id}> then make yourself at home."
-                
-                embed = discord.Embed(
-                    title=embed_title,
-                    description=embed_description,
-                    color=discord.Color.green()
-                )
-                embed.set_image(url=utils.VERIFY_IMAGE_URL)
-                await sinner_chat_channel.send(embed=embed)
-
-            await interaction.response.send_message(f"Successfully verified {member.mention} and posted the welcome message.", ephemeral=True)
-
+                try:
+                    embed_title = f"Welcome To The Sinners Side Of The Server ❧"
+                    embed_description = f"Go to <#{self_roles_channel_id}> then make yourself at home."
+                    
+                    embed = discord.Embed(
+                        title=embed_title,
+                        description=embed_description,
+                        color=discord.Color.green()
+                    )
+                    
+                    welcome_img_path = os.path.join(utils.ASSETS_DIR, "welcome_img.png")
+                    if os.path.exists(welcome_img_path):
+                        file = discord.File(welcome_img_path, filename="welcome_img.png")
+                        embed.set_image(url="attachment://welcome_img.png")
+                        await sinner_chat_channel.send(f"Welcome {member.mention}", embed=embed, file=file)
+                    else:
+                        await sinner_chat_channel.send(f"Welcome {member.mention}", embed=embed)
+                except discord.Forbidden:
+                    await interaction.followup.send(f"Successfully verified {member.mention}, but couldn't send the welcome message. Please check bot permissions in the channel.", ephemeral=True)
+                    return
         except discord.Forbidden:
-            await interaction.response.send_message("I do not have permission to assign or remove one of the roles. Please check my permissions.", ephemeral=True)
+            await interaction.followup.send("I do not have permission to assign or remove one of the roles. Please check my permissions.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"An error occurred while trying to assign/remove roles or send the message: {e}", ephemeral=True)
+            await interaction.followup.send(f"An error occurred while trying to assign/remove roles or send the message: {e}", ephemeral=True)
 
     @app_commands.command(name="crossverify", description="[Staff Only] Verify a member and grant them the 'Cross Verified' role.")
-    @app_commands.checks.has_any_role(utils.ROLE_IDS.get("Staff", 0))
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     @app_commands.describe(member="The member to cross-verify.")
     async def crossverify(self, interaction: discord.Interaction, member: discord.Member):
-        if interaction.guild and interaction.guild.id != utils.MAIN_GUILD_ID:
-            return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
+        await interaction.response.defer() # removed ephemeral=True
 
-        access_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("cross_verified"))
+        if interaction.guild and interaction.guild.id != utils.MAIN_GUILD_ID:
+            return await interaction.followup.send("This command is only available on the main server.", ephemeral=True)
+
+        cross_verified_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("cross_verified"))
         id_verified_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("id_verified"))
         visitor_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("Visitor"))
         sinner_chat_channel = self.bot.get_channel(utils.SINNER_CHAT_CHANNEL_ID)
         self_roles_channel_id = utils.SELF_ROLES_CHANNEL_ID
+        
+        id_cross_verified_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("id_cross_verified"))
 
-        if not access_role_obj or not id_verified_role_obj or not visitor_role_obj or not sinner_chat_channel:
-            return await interaction.response.send_message("One or more required roles or channels could not be found. Please check role IDs and channel IDs in settings.", ephemeral=True)
+        if not cross_verified_role_obj or not id_verified_role_obj or not visitor_role_obj or not sinner_chat_channel or not id_cross_verified_role_obj:
+            return await interaction.followup.send("One or more required roles or channels could not be found. Please check role IDs and channel IDs in settings.", ephemeral=True)
 
         try:
-            await member.add_roles(access_role_obj, id_verified_role_obj, reason="Manually cross-verified by a staff member.")
+            # Corrected role assignment from id_verified to verified_access
+            verified_access_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("verified_access"))
+            if not verified_access_role_obj:
+                 return await interaction.followup.send("The 'verified_access' role could not be found. Please check role IDs in settings.", ephemeral=True)
+            
+            await member.add_roles(cross_verified_role_obj, id_cross_verified_role_obj, reason="Manually cross-verified by a staff member.")
             await member.remove_roles(visitor_role_obj, reason="Member has been cross-verified.")
 
+            # Removed ephemeral=True from the send_message call
+            await interaction.followup.send("Thank you for verifying with us today.")
+
             if sinner_chat_channel:
-                embed_title = f"Welcome To The Sinners Side Of The Server ❧"
-                embed_description = f"You are now cross verified, {member.mention}! Go to <#{self_roles_channel_id}> then make yourself at home."
-                
-                embed = discord.Embed(
-                    title=embed_title,
-                    description=embed_description,
-                    color=discord.Color.green()
-                )
-                embed.set_image(url=utils.CROSS_VERIFIED_IMAGE_URL)
-                await sinner_chat_channel.send(embed=embed)
-
-            await interaction.response.send_message(f"Successfully cross-verified {member.mention} and posted the welcome message.", ephemeral=True)
-
+                try:
+                    embed_title = f"Welcome To The Sinners Side Of The Server ❧"
+                    embed_description = f"Go to <#{self_roles_channel_id}> then make yourself at home."
+                    
+                    embed = discord.Embed(
+                        title=embed_title,
+                        description=embed_description,
+                        color=discord.Color.green()
+                    )
+                    
+                    welcome_img_path = os.path.join(utils.ASSETS_DIR, "welcome_img.png")
+                    if os.path.exists(welcome_img_path):
+                        file = discord.File(welcome_img_path, filename="welcome_img.png")
+                        embed.set_image(url="attachment://welcome_img.png")
+                        await sinner_chat_channel.send(f"Welcome {member.mention}", embed=embed, file=file)
+                    else:
+                        await interaction.followup.send(f"Successfully cross-verified {member.mention}, but couldn't find the welcome image.", ephemeral=True)
+                        await sinner_chat_channel.send(f"Welcome {member.mention}", embed=embed)
+                        return
+                except discord.Forbidden:
+                    await interaction.followup.send(f"Successfully cross-verified {member.mention}, but couldn't send the welcome message. Please check bot permissions in the channel.", ephemeral=True)
+                    return
         except discord.Forbidden:
-            await interaction.response.send_message("I do not have permission to assign or remove one of the roles. Please check my permissions.", ephemeral=True)
+            await interaction.followup.send("I do not have permission to assign or remove one of the roles. Please check my permissions.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"An error occurred while trying to assign/remove roles or send the message: {e}", ephemeral=True)
+            await interaction.followup.send(f"An error occurred while trying to assign/remove roles or send the message: {e}", ephemeral=True)
 
 async def setup(bot):
     """The setup function to add this cog to the bot."""

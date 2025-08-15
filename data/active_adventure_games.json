@@ -1,0 +1,203 @@
+{
+    "1405624807025934448": {
+        "player_id": 474380232468463646,
+        "player_name": "Kyrian \u1506\u1d57\u1d43\u1da0\u1da0",
+        "chat_history": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": "consent all"
+                    }
+                ]
+            },
+            {
+                "role": "model",
+                "parts": [
+                    {
+                        "text": "Kyrian \u1506\u1d57\u1d43\u1da0\u1da0 awakens in a dimly lit cell.  A single, barred window high on the wall offers a sliver of moonlight. You are bound tightly to a chair with layers of tape, a leather strap across your chest, and leather mittens on your hands. A blindfold prevents you from seeing, and a ball gag silences any cries for help.  The rough stone floor is cold against your bare skin.  You can feel the dampness seeping into your clothes. To your left, you feel the rough texture of a loose brick in the wall. To your right, a rusty metal bucket sits near the chair."
+                    }
+                ]
+            }
+        ],
+        "active_traps": {
+            "ball_gag": 3,
+            "blindfold": 1,
+            "leather_mittens": 1,
+            "layers_of_tape": 1
+        },
+        "is_incapacitated": false,
+        "game_won": false,
+        "game_theme": "jail",
+        "original_roles": [
+            1390769023326879816,
+            1186035271188349050,
+            1393681739204919346,
+            1200192224860844182,
+            1200192274840178728,
+            1037704413227253841,
+            1037700813402947584,
+            1200390087821774928,
+            1037696585028620329,
+            1037695835292565556,
+            1037687017791828139,
+            1200192322684588134,
+            829540156750692382,
+            1200192072926380153,
+            829540044959645716,
+            1200192033185353758,
+            901071867757084752,
+            1009489978138578994,
+            901070350899613706,
+            1200191980349685770,
+            836539185833443359,
+            1200192126273736815,
+            836541164152422400,
+            1200229273903058965,
+            824240117526298655,
+            1200395077927837766,
+            970449890796785694,
+            1200395158005497866,
+            824236109487013898,
+            1200395477804396694,
+            1137020358772400218,
+            1031567764177027163,
+            1146562378230661271,
+            1049231659532304404,
+            1264619999864291480,
+            824791444795555911,
+            1400892131693953120
+        ],
+        "allowed_traps": [
+            "rope",
+            "blindfold",
+            "ball_gag",
+            "mummification",
+            "straitjacket",
+            "leather_strap",
+            "leather_mittens",
+            "layers_of_tape"
+        ],
+        "waiting_for_consent": false,
+        "current_choices": [
+            "Try to dislodge the loose brick.",
+            "Examine the rusty bucket.",
+            "Struggle against the restraints.",
+            "Try to shift your body to reach the window"
+        ]
+    },
+    "1405746064388001873": {
+        "player_id": 629922206272454656,
+        "player_name": "\ud83d\ude07.\u2661\u01df\u057c\u0262\u025b\u029f/\u0266\u01df\u0280\u029f\u025b\u028f\u2661. (D:\ud83c\udf19\ud83e\udea2)\u1d3c\u02b7\u207f\u1d49\u02b3",
+        "chat_history": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": "None"
+                    }
+                ]
+            },
+            {
+                "role": "model",
+                "parts": [
+                    {
+                        "text": "\ud83d\ude07.\u2661\u01df\u057c\u0262\u025b\u029f/\u0266\u01df\u0280\u029f\u025b\u028f\u2661. (D:\ud83c\udf19\ud83e\udea2)\u1d3c\u02b7\u207f\u1d49\u02b3. finds herself locked in a small, dimly lit room.  A heavy wooden door is the only visible exit. There's a small, rusty keyhole next to the door handle, and a loose floorboard near the corner."
+                    }
+                ]
+            }
+        ],
+        "active_traps": {},
+        "is_incapacitated": false,
+        "game_won": false,
+        "game_theme": null,
+        "original_roles": [
+            1405435490865254430,
+            1390782691527491637,
+            1390782543816687636,
+            1390782341500371117,
+            1390782353772908554,
+            1390782221870301255,
+            1390782119017713816,
+            1390782063556432043,
+            1390781994455273572,
+            1390781902255816795,
+            1390781769468477673,
+            1390771551216996492,
+            1390771497781563522,
+            1390771444945780796,
+            1390771359751344138,
+            1390769903044263946,
+            1390769366299316304,
+            1390769296300314806,
+            1390769255070306345,
+            1390769176397746246,
+            1390769023326879816,
+            1251903342939082802,
+            1251903006417489950,
+            1251902943670698106,
+            1251902868345196595,
+            1251902711839064166,
+            1293639562815475752,
+            866059145241165854,
+            1293290617316835520,
+            1186035271188349050,
+            1393681739204919346,
+            1278478311860863116,
+            1114143608812085300,
+            1200192224860844182,
+            1200192274840178728,
+            1037704413227253841,
+            1037704395816714241,
+            1037704389776916490,
+            1037700817785999360,
+            1037700813402947584,
+            1037700802824904776,
+            1037704402850549801,
+            1037697090706477086,
+            1200390087821774928,
+            1037696585028620329,
+            1037696099277864980,
+            1037695835292565556,
+            1037691276377722931,
+            1037687017791828139,
+            1200192322684588134,
+            841398440897675265,
+            841412538092879913,
+            1253477534608134215,
+            829540156750692382,
+            1200192072926380153,
+            829539964613558272,
+            829540044959645716,
+            1200192033185353758,
+            901071867757084752,
+            1009489978138578994,
+            901070040479199252,
+            1200191980349685770,
+            971114944567324693,
+            836539939507142656,
+            1200192126273736815,
+            836540787767640134,
+            1200229273903058965,
+            1092525384307851284,
+            1200395077927837766,
+            971107718557499433,
+            1200395158005497866,
+            824236109487013898,
+            1200395477804396694,
+            971115781918171136,
+            824285088127778837,
+            1049231659532304404,
+            1264619999864291480,
+            1405330664320139356,
+            824791444795555911
+        ],
+        "allowed_traps": [],
+        "waiting_for_consent": false,
+        "current_choices": [
+            "Examine the keyhole and search for a key.",
+            "Investigate the loose floorboard.",
+            "Try to force the door open."
+        ]
+    }
+}

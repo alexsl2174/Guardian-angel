@@ -13,6 +13,7 @@ import asyncio
 # Assume cogs.utils is available
 import cogs.utils as utils
 from cogs.BugData import INSECT_LIST, SHINY_INSECT_LIST, load_bug_collection, save_bug_collection
+from cogs.bug_catching import load_inventory, save_inventory
 from cogs.BugbookViews import BugbookListView, TradeConfirmationView
 
 # --- Game Configuration ---
@@ -26,6 +27,17 @@ SHINY_CATCH_SUCCESS_CHANCE = 0.07 # 7% success rate per attempt
 def now():
     return datetime.datetime.now(datetime.timezone.utc)
 
+def is_staff():
+    """A custom decorator check to see if the user has a Staff role ID."""
+    def predicate(interaction: discord.Interaction) -> bool:
+        staff_role_ids = utils.ROLE_IDS.get("Staff", [])
+        if not isinstance(staff_role_ids, list):
+            staff_role_ids = [staff_role_ids]
+        
+        user_role_ids = [role.id for role in interaction.user.roles]
+        return any(role_id in user_role_ids for role_id in staff_role_ids)
+    return app_commands.check(predicate)
+
 class TreeGame(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -33,12 +45,16 @@ class TreeGame(commands.Cog):
         try:
             game_data = utils.load_tree_game_data()
             self.TREES = game_data.get("trees", {})
-            self.LAST_USED_TIMES = game_data.get("user_cooldowns", {})
+            self.COOLDOWNS = game_data.get("cooldowns", {"water": {}, "bug_catch": {}})
         except AttributeError:
             self.TREES = utils.load_tree_of_life_state()
-            self.LAST_USED_TIMES = utils.load_last_used_times()
+            self.COOLDOWNS = utils.load_user_cooldowns()
 
         self.COOLDOWN_SECONDS = COOLDOWN_SECONDS
+        self.REGULAR_CATCH_CHANCE = REGULAR_CATCH_CHANCE
+        self.FAILED_CATCH_CHANCE = FAILED_CATCH_CHANCE
+        self.SHINY_FOUND_CHANCE = SHINY_FOUND_CHANCE
+        self.SHINY_CATCH_SUCCESS_CHANCE = SHINY_CATCH_SUCCESS_CHANCE
         self.notification_task = None
         
         # The periodic task is now re-enabled
@@ -73,9 +89,9 @@ class TreeGame(commands.Cog):
         try:
             await asyncio.sleep(delay_seconds)
             
-            channel = self.bot.get_channel(utils.STATUS_CHANNEL_ID)
+            channel = self.bot.get_channel(utils.TREE_CHANNEL_ID)
             if not channel:
-                print(f"Error: Status channel with ID {utils.STATUS_CHANNEL_ID} not found.")
+                print(f"Error: Status channel with ID {utils.TREE_CHANNEL_ID} not found.")
                 return
 
             tree_state = self.get_tree_state(channel.guild.id)
@@ -86,8 +102,10 @@ class TreeGame(commands.Cog):
             ready_to_water = time_since_watered > self.COOLDOWN_SECONDS
             
             description_text = f"Our tree is now size **{tree_size}**!\n\n"
+            mention_message = ""
             if ready_to_water:
                 description_text += "The tree feels a bit parched! 💧 It's time for a refreshing drink and it's buzzing with new life! 🪲"
+                mention_message = f"<@&{utils.ROLE_IDS.get('tree_role_id')}>"
             else:
                 description_text += "The tree is still hydrated and growing peacefully. 🌳"
 
@@ -105,7 +123,7 @@ class TreeGame(commands.Cog):
             )
             embed.set_image(url=f"attachment://{image_file}")
             
-            await channel.send(file=discord.File(os.path.join(utils.ASSETS_DIR, image_file)), embed=embed)
+            await channel.send(content=mention_message, file=discord.File(os.path.join(utils.ASSETS_DIR, image_file)), embed=embed)
             
             self.schedule_next_notification(self.COOLDOWN_SECONDS)
         except asyncio.CancelledError:
@@ -116,14 +134,11 @@ class TreeGame(commands.Cog):
 
     def save_tree_state(self, server_id, state):
         self.TREES[str(server_id)] = state
-        game_data = {"trees": self.TREES, "user_cooldowns": self.LAST_USED_TIMES}
-        try:
-            utils.save_tree_game_data(game_data)
-        except AttributeError:
-            utils.save_tree_of_life_state(server_id, state)
+        game_data = {"trees": self.TREES, "cooldowns": self.COOLDOWNS}
+        utils.save_tree_game_data(game_data)
 
-    def is_cooldown_expired(self, user_id):
-        last_used_str = self.LAST_USED_TIMES.get(str(user_id))
+    def is_cooldown_expired(self, user_id, action_type: str):
+        last_used_str = self.COOLDOWNS.get(action_type, {}).get(str(user_id))
         if not last_used_str:
             return True
         
@@ -132,13 +147,12 @@ class TreeGame(commands.Cog):
         
         return time_diff.total_seconds() >= self.COOLDOWN_SECONDS
     
-    def update_last_used_time(self, user_id):
-        self.LAST_USED_TIMES[str(user_id)] = now().isoformat()
-        game_data = {"trees": self.TREES, "user_cooldowns": self.LAST_USED_TIMES}
-        try:
-            utils.save_tree_game_data(game_data)
-        except AttributeError:
-            utils.save_last_used_times(self.LAST_USED_TIMES)
+    def update_last_used_time(self, user_id, action_type: str):
+        if action_type not in self.COOLDOWNS:
+            self.COOLDOWNS[action_type] = {}
+        self.COOLDOWNS[action_type][str(user_id)] = now().isoformat()
+        game_data = {"trees": self.TREES, "cooldowns": self.COOLDOWNS}
+        utils.save_tree_game_data(game_data)
     
     def _format_time_difference(self, seconds: float) -> str:
         if seconds <= 60:
@@ -249,101 +263,93 @@ class TreeGame(commands.Cog):
             bug_catch_button.callback = self.bug_catch_callback
             self.add_item(bug_catch_button)
         
-        async def update_buttons(self):
-            user_cooldown_expired = self.cog.is_cooldown_expired(self.interaction.user.id)
-            tree_cooldown_expired = (now() - datetime.datetime.fromisoformat(self.tree_state['last_watered_timestamp'])).total_seconds() > self.cog.COOLDOWN_SECONDS
-            
-            for item in self.children:
-                if isinstance(item, Button):
-                    if item.label == "Water":
-                        item.disabled = not (user_cooldown_expired and tree_cooldown_expired)
-                    elif item.label == "Catch a Bug":
-                        item.disabled = not user_cooldown_expired or self.tree_state['height'] < 10
-            
-            await self.interaction.edit_original_response(view=self)
-
         async def water_callback(self, interaction: discord.Interaction):
             server_id = interaction.guild.id
             tree_state = self.cog.get_tree_state(server_id)
             
-            user_cooldown_expired = self.cog.is_cooldown_expired(interaction.user.id)
+            user_cooldown_expired = self.cog.is_cooldown_expired(interaction.user.id, "water")
             tree_cooldown_expired = (now() - datetime.datetime.fromisoformat(tree_state['last_watered_timestamp'])).total_seconds() > self.cog.COOLDOWN_SECONDS
 
-            if not user_cooldown_expired:
-                time_diff = now() - datetime.datetime.fromisoformat(self.cog.LAST_USED_TIMES.get(str(interaction.user.id)))
-                remaining_time = self.cog.COOLDOWN_SECONDS - time_diff.total_seconds()
-                formatted_time = self.cog._format_time_difference(remaining_time)
-                return await interaction.response.send_message(f"You have already performed an action recently. You can try again in **{formatted_time}**.", ephemeral=False)
+            # Defer the response to prevent "Interaction failed" message.
+            await interaction.response.defer(ephemeral=True)
+
+            # Check for cooldowns and return a single ephemeral message if not expired.
+            if not user_cooldown_expired or not tree_cooldown_expired:
+                last_used_time = self.cog.COOLDOWNS.get("water", {}).get(str(interaction.user.id))
+                message = ""
+
+                if not user_cooldown_expired:
+                    time_diff = now() - datetime.datetime.fromisoformat(last_used_time)
+                    remaining_time = self.cog.COOLDOWN_SECONDS - time_diff.total_seconds()
+                    formatted_time = self.cog._format_time_difference(remaining_time)
+                    message = f"You have already watered the tree recently. You can try again in **{formatted_time}**."
+                elif not tree_cooldown_expired:
+                    time_diff = now() - datetime.datetime.fromisoformat(tree_state['last_watered_timestamp'])
+                    remaining_time = self.cog.COOLDOWN_SECONDS - time_diff.total_seconds()
+                    formatted_time = self.cog._format_time_difference(remaining_time)
+                    message = f"The tree is already wet! You can water it again in **{formatted_time}**."
+                
+                return await interaction.followup.send(message, ephemeral=True)
             
-            if not tree_cooldown_expired:
-                time_diff = now() - datetime.datetime.fromisoformat(tree_state['last_watered_timestamp'])
-                remaining_time = self.cog.COOLDOWN_SECONDS - time_diff.total_seconds()
-                formatted_time = self.cog._format_time_difference(remaining_time)
-                return await interaction.response.send_message(f"The tree is already wet! You can water it again in **{formatted_time}**.", ephemeral=False)
-            
+            # If both cooldowns are expired, proceed with watering the tree.
+            # Check if this is the user's first time watering and give them a net
+            user_inventory = load_inventory(interaction.user.id)
+            if not user_inventory.get('nets'):
+                user_inventory['nets'] = [{"name": "Regular Net", "durability": 10}]
+                user_inventory['equipped_net'] = "Regular Net"
+                save_inventory(interaction.user.id, user_inventory)
+                await interaction.channel.send(f"{interaction.user.mention} has received a free **Regular Net** for watering the tree for the first time! 🎣")
+
             tree_state['height'] += 1
             tree_state['last_watered_by'] = str(interaction.user.id)
             tree_state['last_watered_timestamp'] = now().isoformat()
             self.cog.save_tree_state(server_id, tree_state)
-            self.cog.update_last_used_time(interaction.user.id)
+            self.cog.update_last_used_time(interaction.user.id, "water")
             
-            await interaction.response.send_message(f"You watered the server's tree! It's now size {tree_state['height']}.", ephemeral=False)
-            await self._update_message_content(interaction)
-            
-            original_message = await interaction.original_response()
-            new_view = self.cog.TreeGameView(self.cog, interaction, tree_state)
-            await original_message.edit(view=new_view)
+            # Send a new, separate message to thank the user.
+            await interaction.channel.send(f"Thank you for watering the tree, {interaction.user.mention}! The tree is now size {tree_state['height']}. 🌳")
 
+            # Update the original tree embed, but without the buttons.
+            tree_image = self.cog._get_tree_image(tree_state['height'])
+            
+            embed = discord.Embed(
+                title=f"The Server's Tree of Life",
+                description=f"The tree is currently size **{tree_state['height']}**.\n\n"
+                            f"The tree is now hydrated. 🌳",
+                color=discord.Color.green()
+            )
+            embed.set_image(url=f"attachment://{tree_image.filename}")
+            
+            await interaction.edit_original_response(attachments=[tree_image], embed=embed, view=None)
 
         async def bug_catch_callback(self, interaction: discord.Interaction):
+            server_id = interaction.guild.id
+            tree_state = self.cog.get_tree_state(server_id)
+            
+            # Check for user cooldown for bug catching first
+            if not self.cog.is_cooldown_expired(interaction.user.id, "bug_catch"):
+                time_diff = now() - datetime.datetime.fromisoformat(self.cog.COOLDOWNS.get("bug_catch", {}).get(str(interaction.user.id)))
+                remaining_time = self.cog.COOLDOWN_SECONDS - time_diff.total_seconds()
+                formatted_time = self.cog._format_time_difference(remaining_time)
+                return await interaction.response.send_message(f"You have already performed an action recently. You can try again in **{formatted_time}**.", ephemeral=True)
+
+            # Defer the response publicly
             await interaction.response.defer()
-            user_id = str(interaction.user.id)
-            
-            bug_collection = load_bug_collection()
-            user_data = bug_collection.get(user_id, {"caught": [], "xp": 0, "shinies_caught": []})
 
-            roll = random.random()
+            # Check tree height before bug catching
+            if tree_state['height'] < 10:
+                return await interaction.followup.send("The tree is too small to have bugs! Grow it to size 10 first.", ephemeral=False)
             
-            if self.tree_state['height'] < 10:
-                await interaction.followup.send("The tree is too small to have bugs! Grow it to size 10 first.", ephemeral=False)
-                return
-            
-            if roll < self.cog.SHINY_FOUND_CHANCE:
-                caught_bug_info = random.choice(INSECT_LIST)
-                
-                embed = discord.Embed(
-                    title=f"A shiny bug appeared!",
-                    description=f"A shiny **{caught_bug_info['name']}** {caught_bug_info['emoji']} has appeared! It looks very rare! You must try to catch it!",
-                    color=discord.Color.gold()
-                )
-                embed.set_thumbnail(url=caught_bug_info['image_url'])
+            # Get a reference to the Bugbook cog
+            bugbook_cog = self.cog.bot.get_cog('Bugbook')
+            if not bugbook_cog:
+                return await interaction.followup.send("❌ An error occurred: Bugbook cog is not loaded.", ephemeral=True)
 
-                view = self.cog.ShinyCatchView(self.cog, interaction, caught_bug_info)
-                message = await interaction.followup.send(embed=embed, view=view)
-                view.message = message
+            # Call the new catch_bug method in the Bugbook cog
+            await bugbook_cog.catch_bug(interaction, self.cog, tree_state)
             
-            elif roll < self.cog.SHINY_FOUND_CHANCE + self.cog.REGULAR_CATCH_CHANCE:
-                caught_bug_info = random.choice(INSECT_LIST)
-                caught_bug_name = caught_bug_info['name']
-                caught_bug_xp = caught_bug_info['xp']
-                caught_bug_emoji = caught_bug_info['emoji']
-                
-                user_data['caught'].append(caught_bug_name)
-                user_data['xp'] = user_data.get('xp', 0) + caught_bug_xp
-                bug_collection[user_id] = user_data
-                save_bug_collection(bug_collection)
-                
-                embed = discord.Embed(
-                    title=f"You caught a bug!",
-                    description=f"You found a **{caught_bug_name}** {caught_bug_emoji} and earned **{caught_bug_xp}** XP!",
-                    color=discord.Color.blue()
-                )
-                embed.set_thumbnail(url=caught_bug_info['image_url'])
-                await interaction.followup.send(embed=embed)
-            
-            else:
-                await interaction.followup.send("You tried to catch a bug, but it got away!")
-    
+            # The cooldown is now updated by the Bugbook cog's catch_bug method
+
     @app_commands.command(name="tree", description="Interact with the server's Tree of Life.")
     async def tree(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -365,9 +371,30 @@ class TreeGame(commands.Cog):
         
         view = self.TreeGameView(self, interaction, tree_state)
         
-        await view.update_buttons()
-
         await interaction.followup.send(file=image_file, embed=embed, view=view)
+
+    @app_commands.command(name="resettreecooldowns", description="Reset cooldowns for the Tree of Life (Staff only).")
+    @is_staff()
+    async def resettreecooldowns(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        server_id = interaction.guild.id
+        
+        # Reset the server-wide cooldown by updating the timestamp
+        tree_state = self.get_tree_state(server_id)
+        tree_state['last_watered_timestamp'] = (now() - datetime.timedelta(seconds=self.COOLDOWN_SECONDS + 1)).isoformat()
+        self.save_tree_state(server_id, tree_state)
+        
+        # Clear all user cooldowns associated with the tree game
+        self.COOLDOWNS = {"water": {}, "bug_catch": {}}
+        game_data = {"trees": self.TREES, "cooldowns": self.COOLDOWNS}
+        utils.save_tree_game_data(game_data)
+        
+        await interaction.followup.send("The Tree of Life's cooldowns have been reset. You can now water the tree again.", ephemeral=True)
+    
+    @resettreecooldowns.error
+    async def resettreecooldowns_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CheckFailure):
+            await interaction.response.send_message("You do not have the required permissions to use this command.", ephemeral=True)
 
 
     async def schedule_initial_notification(self):
@@ -395,9 +422,9 @@ class TreeGame(commands.Cog):
         try:
             await asyncio.sleep(delay_seconds)
             
-            channel = self.bot.get_channel(utils.STATUS_CHANNEL_ID)
+            channel = self.bot.get_channel(utils.TREE_CHANNEL_ID)
             if not channel:
-                print(f"Error: Status channel with ID {utils.STATUS_CHANNEL_ID} not found.")
+                print(f"Error: Status channel with ID {utils.TREE_CHANNEL_ID} not found.")
                 return
 
             tree_state = self.get_tree_state(channel.guild.id)
@@ -408,8 +435,10 @@ class TreeGame(commands.Cog):
             ready_to_water = time_since_watered > self.COOLDOWN_SECONDS
             
             description_text = f"Our tree is now size **{tree_size}**!\n\n"
+            mention_message = ""
             if ready_to_water:
                 description_text += "The tree feels a bit parched! 💧 It's time for a refreshing drink and it's buzzing with new life! 🪲"
+                mention_message = f"<@&{utils.ROLE_IDS.get('tree_role_id')}>"
             else:
                 description_text += "The tree is still hydrated and growing peacefully. 🌳"
 
@@ -427,7 +456,7 @@ class TreeGame(commands.Cog):
             )
             embed.set_image(url=f"attachment://{image_file}")
             
-            await channel.send(file=discord.File(os.path.join(utils.ASSETS_DIR, image_file)), embed=embed)
+            await channel.send(content=mention_message, file=discord.File(os.path.join(utils.ASSETS_DIR, image_file)), embed=embed)
             
             self.schedule_next_notification(self.COOLDOWN_SECONDS)
         except asyncio.CancelledError:

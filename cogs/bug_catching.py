@@ -35,6 +35,88 @@ class Bugbook(commands.Cog):
         self.INSECT_LIST = INSECT_LIST
         self.SHINY_INSECT_LIST = SHINY_INSECT_LIST
         self.bugs_per_page = 10
+        self.SHINY_FOUND_CHANCE = 0.05
+        self.REGULAR_CATCH_CHANCE = 0.85
+        self.SHINY_CATCH_SUCCESS_CHANCE = 0.07
+
+    class ShinyCatchView(View):
+        def __init__(self, cog, interaction: discord.Interaction, bug_info: dict):
+            super().__init__(timeout=180)
+            self.cog = cog
+            self.interaction = interaction
+            self.bug_info = bug_info
+            self.catch_attempts = 3
+            self.message = None
+            self.last_attempt_time = datetime.datetime.now(datetime.timezone.utc)
+            
+            catch_button = Button(label="Try to Catch", style=discord.ButtonStyle.secondary)
+            catch_button.callback = self.catch_callback
+            self.add_item(catch_button)
+        
+        async def on_timeout(self) -> None:
+            if self.message:
+                for item in self.children:
+                    item.disabled = True
+                await self.message.edit(content="The shiny bug has flown away because you ran out of time!", view=self)
+
+        async def catch_callback(self, interaction: discord.Interaction):
+            if interaction.user != self.interaction.user:
+                return await interaction.response.send_message("Only the person who found this shiny bug can try to catch it!", ephemeral=True)
+
+            await interaction.response.defer()
+            
+            # Check for per-try timeout
+            if (datetime.datetime.now(datetime.timezone.utc) - self.last_attempt_time).total_seconds() < 10:
+                remaining_time = 10 - (datetime.datetime.now(datetime.timezone.utc) - self.last_attempt_time).total_seconds()
+                return await interaction.followup.send(f"You must wait {remaining_time:.1f} seconds before your next attempt.", ephemeral=True)
+
+            self.catch_attempts -= 1
+            self.last_attempt_time = datetime.datetime.now(datetime.timezone.utc)
+            user_id = str(interaction.user.id)
+            
+            bug_collection = load_bug_collection()
+            user_data = bug_collection.get(user_id, {"caught": [], "xp": 0, "shinies_caught": []})
+            
+            if random.random() < self.cog.SHINY_CATCH_SUCCESS_CHANCE:
+                caught_bug_name = f"Shiny {self.bug_info['name']}"
+                caught_bug_xp = self.bug_info['xp'] * 2
+                caught_bug_emoji = self.bug_info['emoji']
+                
+                user_data['shinies_caught'].append(caught_bug_name)
+                user_data['caught'].append(caught_bug_name)
+                user_data['xp'] = user_data.get('xp', 0) + caught_bug_xp
+                bug_collection[user_id] = user_data
+                save_bug_collection(bug_collection)
+
+                embed = discord.Embed(
+                    title="🎉 Shiny Catch Successful!",
+                    description=f"You successfully caught the **{caught_bug_name}** {caught_bug_emoji} and earned **{caught_bug_xp}** XP!",
+                    color=discord.Color.gold()
+                )
+                embed.set_thumbnail(url=self.bug_info['image_url'])
+                
+                for item in self.children:
+                    item.disabled = True
+                
+                await interaction.edit_original_response(embed=embed, view=self)
+                self.stop()
+                return
+            
+            embed = discord.Embed(
+                title=f"The shiny bug dodged your net!",
+                description=f"You have **{self.catch_attempts}** attempt(s) left!",
+                color=discord.Color.red()
+            )
+            embed.set_thumbnail(url=self.bug_info['image_url'])
+            
+            if self.catch_attempts <= 0:
+                embed.title = "A shiny bug escaped!"
+                embed.description = f"The shiny bug was too quick and flew away! 💨"
+                for item in self.children:
+                    item.disabled = True
+                self.stop()
+            
+            await interaction.edit_original_response(embed=embed, view=self)
 
     bugbook_group = app_commands.Group(name="bugbook", description="Commands for your bug collection.")
 
@@ -229,6 +311,52 @@ class Bugbook(commands.Cog):
         view = TradeConfirmationView(bot=self.bot, proposer=interaction.user, target=target_user, proposer_bug=your_bug, target_bug=their_bug)
         message = await interaction.followup.send(content=f"{target_user.mention}, you have a trade offer!", embed=embed, view=view)
         view.message = message
+
+    async def catch_bug(self, interaction: discord.Interaction, tree_cog, tree_state: dict):
+        user_id = str(interaction.user.id)
+        bug_collection = load_bug_collection()
+        user_data = bug_collection.get(user_id, {"caught": [], "xp": 0, "shinies_caught": []})
+        
+        roll = random.random()
+
+        if roll < tree_cog.SHINY_FOUND_CHANCE:
+            caught_bug_info = random.choice(self.INSECT_LIST)
+            
+            embed = discord.Embed(
+                title=f"A shiny bug appeared!",
+                description=f"A shiny **{caught_bug_info['name']}** {caught_bug_info['emoji']} has appeared! It looks very rare! You must try to catch it!",
+                color=discord.Color.gold()
+            )
+            embed.set_thumbnail(url=caught_bug_info['image_url'])
+
+            view = Bugbook.ShinyCatchView(tree_cog, interaction, caught_bug_info)
+            message = await interaction.followup.send(embed=embed, view=view)
+            view.message = message
+        
+        elif roll < tree_cog.SHINY_FOUND_CHANCE + tree_cog.REGULAR_CATCH_CHANCE:
+            caught_bug_info = random.choice(self.INSECT_LIST)
+            caught_bug_name = caught_bug_info['name']
+            caught_bug_xp = caught_bug_info['xp']
+            caught_bug_emoji = caught_bug_info['emoji']
+            
+            user_data['caught'].append(caught_bug_name)
+            user_data['xp'] = user_data.get('xp', 0) + caught_bug_xp
+            bug_collection[user_id] = user_data
+            save_bug_collection(bug_collection)
+            
+            embed = discord.Embed(
+                title=f"You caught a bug!",
+                description=f"You found a **{caught_bug_name}** {caught_bug_emoji} and earned **{caught_bug_xp}** XP!",
+                color=discord.Color.blue()
+            )
+            embed.set_thumbnail(url=caught_bug_info['image_url'])
+            await interaction.followup.send(embed=embed)
+        
+        else:
+            await interaction.followup.send("You tried to catch a bug, but it got away!")
+        
+        # Update user cooldown after a bug catching attempt
+        tree_cog.update_last_used_time(interaction.user.id, "bug_catch")
 
 async def setup(bot):
     await bot.add_cog(Bugbook(bot))

@@ -1,7 +1,10 @@
+# cogs/utils.py
+
 import json
 import os
 import random
 import datetime
+import google.generativeai as genai
 import asyncio
 import aiohttp
 import discord
@@ -10,8 +13,6 @@ import re
 import base64
 import io
 import textwrap
-import cogs.utils as utils
-import google.generativeai as genai
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 from discord import app_commands
 
@@ -44,6 +45,10 @@ SKULL_OVERLAY_FILE = os.path.join(ASSETS_DIR, "skull_overlay.png")
 WINNING_BG_FILE = os.path.join(ASSETS_DIR, "winning_bg.png")
 MEDAL_OVERLAY_FILE = os.path.join(ASSETS_DIR, "winner_overlay.png")
 
+# Other file paths for various bot features
+ADVENTURE_AI_RESTRICTIONS_FILE = os.path.join(DATA_DIR, 'adventure_ai_restrictions.txt')
+ACTIVE_ADVENTURE_GAMES_FILE = os.path.join(DATA_DIR, 'active_adventure_games.json')
+USER_ROLES_FILE = os.path.join(DATA_DIR, 'user_roles.json')
 BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
 COOLDOWNS_FILE = os.path.join(DATA_DIR, "cooldowns.json")
 COUNTING_GAME_STATE_FILE = os.path.join(DATA_DIR, "counting_game_state.json")
@@ -64,8 +69,6 @@ TREE_FILE = os.path.join(DATA_DIR, 'tree.json')
 BUMP_BATTLE_STATE_FILE = os.path.join(DATA_DIR, 'bump_battle_state.json')
 VOTE_COOLDOWNS_FILE = os.path.join(DATA_DIR, 'vote_cooldowns.json')
 VOTE_POINTS_FILE = os.path.join(DATA_DIR, 'vote_points.json')
-ADVENTURE_AI_RESTRICTIONS_FILE = os.path.join(DATA_DIR, 'adventure_ai_restrictions.txt')
-ACTIVE_ADVENTURE_GAMES_FILE = os.path.join(DATA_DIR, 'active_adventure_games.json')
 DAILY_POSTS_FILE = os.path.join(DATA_DIR, 'daily_posts.json')
 BUG_COLLECTION_FILE = os.path.join(DATA_DIR, "bug_collection.json")
 PENDING_TRADES_FILE = os.path.join(DATA_DIR, "pending_trades.json")
@@ -73,7 +76,7 @@ BOT_CONFIG_FILE = os.path.join(DATA_DIR, "bot_config.json")
 SHOP_ITEMS_FILE = os.path.join(DATA_DIR, "shop_items.json")
 USER_BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
 USER_INVENTORY_FILE = os.path.join(DATA_DIR, "user_inventory.json")
-USER_ROLES_FILE = os.path.join(DATA_DIR, 'user_roles.json')
+
 
 # --- Configuration Loading ---
 FIRST_COUNT_REWARD = 25
@@ -104,42 +107,40 @@ def save_data(data: Any, file_path: str):
 # Load the dynamic bot configuration
 bot_config = load_data(BOT_CONFIG_FILE, {})
 
-# --- Role and Channel IDs (Now Loaded from Config) ---
-MAIN_GUILD_ID = bot_config.get("MAIN_GUILD_ID", int(os.getenv("MAIN_GUILD_ID")) if os.getenv("MAIN_GUILD_ID") else None)
-TEST_CHANNEL_ID = bot_config.get("TEST_CHANNEL_ID", 1403900596020580523)
+# --- Global Configuration Constants (Reloaded via reload_globals) ---
+QOTD_ROLE_ID = None
+MAIN_GUILD_ID = None
+TEST_CHANNEL_ID = None
+PLAYER_ROLE_ID = None
+QOTD_CHANNEL_ID = None
+ADVENTURE_MAIN_CHANNEL_ID = None
+CHAT_REVIVE_CHANNEL_ID = None
+DAILY_COMMENTS_CHANNEL_ID = None
+SELF_ROLES_CHANNEL_ID = None
+SINNER_CHAT_CHANNEL_ID = None
+BUMDAY_MONDAY_CHANNEL_ID = None
+TITS_OUT_TUESDAY_CHANNEL_ID = None
+WET_WEDNESDAY_CHANNEL_ID = None
+FURBABY_THURSDAY_CHANNEL_ID = None
+FRISKY_FRIDAY_CHANNEL_ID = None
+SELFIE_SATURDAY_CHANNEL_ID = None
+SLUTTY_SUNDAY_CHANNEL_ID = None
+ANAGRAM_CHANNEL_ID = None
+BUMP_BATTLE_CHANNEL_ID = None
+ANNOUNCEMENTS_CHANNEL_ID = None
+VOTE_CHANNEL_ID = None
+VOTE_COOLDOWN_HOURS = None
+TREE_CHANNEL_ID = None
+COUNTING_CHANNEL_ID = None
+REVIVE_INTERVAL_HOURS = None
+ROLE_IDS = {}
+CHAT_REVIVE_ROLE_ID = None
+ANNOUNCEMENTS_ROLE_ID = None
+MOD_ROLE_ID = None
+TIMED_CHANNELS = {}
+DAILY_POSTS_CHANNELS = []
 
-PLAYER_ROLE_ID = bot_config.get("PLAYER_ROLE_ID", int(os.getenv("PLAYER_ROLE_ID")) if os.getenv("PLAYER_ROLE_ID") else None)
-ADVENTURE_MAIN_CHANNEL_ID = bot_config.get("ADVENTURE_MAIN_CHANNEL_ID", TEST_CHANNEL_ID)
-
-CHAT_REVIVE_CHANNEL_ID = bot_config.get("CHAT_REVIVE_CHANNEL_ID", TEST_CHANNEL_ID)
-DAILY_COMMENTS_CHANNEL_ID = bot_config.get("DAILY_COMMENTS_CHANNEL_ID", TEST_CHANNEL_ID)
-SELF_ROLES_CHANNEL_ID = bot_config.get("SELF_ROLES_CHANNEL_ID", TEST_CHANNEL_ID)
-SINNER_CHAT_CHANNEL_ID = bot_config.get("SINNER_CHAT_CHANNEL_ID", TEST_CHANNEL_ID)
-BUMDAY_MONDAY_CHANNEL_ID = bot_config.get("BUMDAY_MONDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-TITS_OUT_TUESDAY_CHANNEL_ID = bot_config.get("TITS_OUT_TUESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-WET_WEDNESDAY_CHANNEL_ID = bot_config.get("WET_WEDNESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-FURBABY_THURSDAY_CHANNEL_ID = bot_config.get("FURBABY_THURSDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-FRISKY_FRIDAY_CHANNEL_ID = bot_config.get("FRISKY_FRIDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-SELFIE_SATURDAY_CHANNEL_ID = bot_config.get("SELFIE_SATURDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-SLUTTY_SUNDAY_CHANNEL_ID = bot_config.get("SLUTTY_SUNDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-ANAGRAM_CHANNEL_ID = bot_config.get("ANAGRAM_CHANNEL_ID", TEST_CHANNEL_ID)
-BUMP_BATTLE_CHANNEL_ID = bot_config.get("BUMP_BATTLE_CHANNEL_ID", TEST_CHANNEL_ID)
-ANNOUNCEMENTS_CHANNEL_ID = bot_config.get("ANNOUNCEMENTS_CHANNEL_ID", TEST_CHANNEL_ID)
-VOTE_CHANNEL_ID = bot_config.get("VOTE_CHANNEL_ID", TEST_CHANNEL_ID)
-VOTE_COOLDOWN_HOURS = bot_config.get("VOTE_COOLDOWN_HOURS", 24)
-STATUS_CHANNEL_ID = bot_config.get("STATUS_CHANNEL_ID", TEST_CHANNEL_ID)
-COUNTING_CHANNEL_ID = bot_config.get("COUNTING_CHANNEL_ID", TEST_CHANNEL_ID)
-REVIVE_INTERVAL_HOURS = bot_config.get("REVIVE_INTERVAL_HOURS", 6)
-
-ROLE_IDS = bot_config.get("role_ids", {})
-CHAT_REVIVE_ROLE_ID = ROLE_IDS.get("chat_revive_role", None)
-ANNOUNCEMENTS_ROLE_ID = ROLE_IDS.get("announcements_role", None)
-MOD_ROLE_ID = ROLE_IDS.get("Staff", [])
-
-TIMED_CHANNELS = bot_config.get("timed_channels", {})
-DAILY_POSTS_CHANNELS = [channel_id for channel_id, _, _ in TIMED_CHANNELS.values()]
-
-REVIVE_IMAGE_URL = "https://images-ext-1.discordapp.net/external/h4lDt1zEboh_iGS9rgvSgSOMiSw9AmHZI6u9aae8BsU/%3Fwidth%3D662%26height%3D662/https/images-ext-1.discordapp.net/external/8FPhOjICXo6SVfWoVS3CgZUDp-Eut9pbVvVQYnUN6sM/https/cdn-longterm.mee6.xyz/plugins/embeds/images/824204389421023282/c742221693daadcf6ed5b3d6885dc5bda3d46d3bae77d62ebe76715446e92375.gif"
+# Image URLs for daily posts
 BUMDAY_MONDAY_IMAGE_URL = "https://images-ext-1.discordapp.net/extbumernal/8FPhOjICXo6SVfWoVS3CgZUDp-Eut9pbVvVQYnUN6sM/https/cdn-longterm.mee6.xyz/plugins/embeds/images/824204389421023282/c742221693daadcf6ed5b3d6885dc5bda3d46d3bae77d62ebe76715446e92375.gif"
 TITS_OUT_TUESDAY_IMAGE_URL = "https://imagetitss-ext-1.discordapp.net/external/h4lDt1zEboh_iGS9rgvSgSOMiSw9AmHZI6u9aae8BsU/%3Fwidth%3D662%26height%3D662/https/images-ext-1.discordapp.net/external/8FPhOjICXo6SVfWoVS3CgZUDp-Eut9pbVvVQYnUN6sM/https/cdn-longterm.mee6.xyz/plugins/embeds/images/824204389421023282/c742221693daadcf6ed5b3d6885dc5bda3d46d3bae77d62ebe76715446e92375.gif"
 WET_WEDNESDAY_IMAGE_URL = "https://images-ext-1.discordapp.net/external/g5V64D8WkF5C8l4P9_k1c6hN_uM7wV3J7-fP-Xb3S2o/https/cdn-longterm.mee6.xyz/plugins/embeds/images/824204389421023282/13a9616335193910c0f9a2e8c56e301297e68d1358d348a1352e6978438b8156.gif"
@@ -151,20 +152,39 @@ VERIFY_IMAGE_URL = "https://images-ext-1.discordapp.net/external/iHRkyLReRBCS-6o
 CROSS_VERIFIED_IMAGE_URL = "https://images-ext-1.discordapp.net/external/iHRkyLReRBCS-6ouS4pyLH3lNu36MadIHn-LI8-AvdM/https/cdn-longterm.mee6.xyz/plugins/embeds/images/824204389421023282/d5a266d70a4c63757d8ba496510819680e5e568daebf66e29ec4b4ff9c05a41c.gif"
 SINNER_CHAT_WELCOME_IMAGE_URL = "https://images-ext-1.discordapp.net/external/iHRkyLReRBCS-6ouS4pyLH3lNu36MadIHn-LI8-AvdM/https/cdn-longterm.mee6.xyz/plugins/embeds/images/824204389421023282/d5a266d70a4c63757d8ba496510819680e5e568daebf66e29ec4b4ff9c05a41c.gif"
 
-# BUMP_BATTLE_GIF_FILE = os.path.join(ASSETS_DIR, "bump_battle.gif")
 
 # --- Autocomplete Functions for Commands ---
 async def channel_id_name_autocomplete(interaction: discord.Interaction, current: str):
     """Provides a list of channel ID keys from the bot_config for autocomplete."""
     choices = []
-    for key in bot_config:
-        if isinstance(bot_config[key], int) and ("channel" in key.lower()):
-            
-            if key.upper().endswith("_CHANNEL_ID"):
-                readable_name = key.upper().replace("_CHANNEL_ID", "").replace("_", " ").title()
-            else:
-                readable_name = key.upper().replace("_", " ").title()
-                
+    # Explicitly list all channel ID keys to include in the autocomplete
+    channel_keys = [
+        "TEST_CHANNEL_ID",
+        "CHAT_REVIVE_CHANNEL_ID",
+        "ADVENTURE_CHANNEL_ID",
+        "DAILY_COMMENTS_CHANNEL_ID",
+        "SELF_ROLES_CHANNEL_ID",
+        "SINNER_CHAT_CHANNEL_ID",
+        "ANAGRAM_CHANNEL_ID",
+        "BUMP_BATTLE_CHANNEL_ID",
+        "ANNOUNCEMENTS_CHANNEL_ID",
+        "VOTE_CHANNEL_ID",
+        "COUNTING_CHANNEL_ID",
+        "BUMDAY_MONDAY_CHANNEL_ID",
+        "TITS_OUT_TUESDAY_CHANNEL_ID",
+        "WET_WEDNESDAY_CHANNEL_ID",
+        "FURBABY_THURSDAY_CHANNEL_ID",
+        "FRISKY_FRIDAY_CHANNEL_ID",
+        "SELFIE_SATURDAY_CHANNEL_ID",
+        "SLUTTY_SUNDAY_CHANNEL_ID",
+        "TREE_CHANNEL_ID",
+        "QOTD_CHANNEL_ID"
+    ]
+    
+    for key in channel_keys:
+        if key in bot_config and isinstance(bot_config.get(key), int) and current.lower() in key.lower():
+            # Create a more readable name for the user
+            readable_name = key.replace("_CHANNEL_ID", "").replace("_", " ").title()
             choices.append(app_commands.Choice(name=readable_name, value=key))
             
     return choices
@@ -173,10 +193,13 @@ async def role_id_name_autocomplete(interaction: discord.Interaction, current: s
     """Provides a list of role ID keys from the bot_config for autocomplete."""
     choices = []
     role_ids_dict = bot_config.get("role_ids", {})
+    # Added PLAYER_ROLE_ID to the autocomplete choices
+    if "PLAYER_ROLE_ID" in bot_config and "player" in current.lower():
+        choices.append(app_commands.Choice(name="PLAYER_ROLE_ID", value="PLAYER_ROLE_ID"))
     for key in role_ids_dict:
-        if isinstance(role_ids_dict[key], int):
-            choices.append(app_commands.Choice(name=key, value=key))
+        choices.append(app_commands.Choice(name=key, value=key))
     return choices
+
 
 # --- Utility Functions for Data Persistence and AI ---
 def update_dynamic_config(key, value):
@@ -193,51 +216,315 @@ def remove_dynamic_config(key):
         reload_globals()
 
 def update_dynamic_role(role_name, role_id):
-    """Updates a specific role ID in the nested 'role_ids' dictionary."""
+    """Updates a specific role ID in the nested 'role_ids' dictionary or at the top level."""
     global bot_config
-    if "role_ids" not in bot_config:
-        bot_config["role_ids"] = {}
-    bot_config["role_ids"][role_name] = role_id
+    if role_name == "PLAYER_ROLE_ID":
+        bot_config[role_name] = role_id
+    else:
+        if "role_ids" not in bot_config:
+            bot_config["role_ids"] = {}
+        bot_config["role_ids"][role_name] = role_id
     save_data(bot_config, BOT_CONFIG_FILE)
     reload_globals()
 
 def reload_globals():
-    global MAIN_GUILD_ID, TEST_CHANNEL_ID, CHAT_REVIVE_CHANNEL_ID, DAILY_COMMENTS_CHANNEL_ID, SELF_ROLES_CHANNEL_ID, SINNER_CHAT_CHANNEL_ID, BUMDAY_MONDAY_CHANNEL_ID, TITS_OUT_TUESDAY_CHANNEL_ID, WET_WEDNESDAY_CHANNEL_ID, FURBABY_THURSDAY_CHANNEL_ID, FRISKY_FRIDAY_CHANNEL_ID, SELFIE_SATURDAY_CHANNEL_ID, SLUTTY_SUNDAY_CHANNEL_ID, ANAGRAM_CHANNEL_ID, BUMP_BATTLE_CHANNEL_ID, ANNOUNCEMENTS_CHANNEL_ID, VOTE_CHANNEL_ID, VOTE_COOLDOWN_HOURS, ROLE_IDS, CHAT_REVIVE_ROLE_ID, ANNOUNCEMENTS_ROLE_ID, MOD_ROLE_ID, TIMED_CHANNELS, DAILY_POSTS_CHANNELS, STATUS_CHANNEL_ID, COUNTING_CHANNEL_ID, PLAYER_ROLE_ID, ADVENTURE_MAIN_CHANNEL_ID, REVIVE_INTERVAL_HOURS
+    global MAIN_GUILD_ID, TEST_CHANNEL_ID, PLAYER_ROLE_ID, ADVENTURE_MAIN_CHANNEL_ID, CHAT_REVIVE_CHANNEL_ID, DAILY_COMMENTS_CHANNEL_ID, SELF_ROLES_CHANNEL_ID, SINNER_CHAT_CHANNEL_ID, BUMDAY_MONDAY_CHANNEL_ID, TITS_OUT_TUESDAY_CHANNEL_ID, WET_WEDNESDAY_CHANNEL_ID, FURBABY_THURSDAY_CHANNEL_ID, FRISKY_FRIDAY_CHANNEL_ID, SELFIE_SATURDAY_CHANNEL_ID, SLUTTY_SUNDAY_CHANNEL_ID, ANAGRAM_CHANNEL_ID, BUMP_BATTLE_CHANNEL_ID, ANNOUNCEMENTS_CHANNEL_ID, VOTE_CHANNEL_ID, VOTE_COOLDOWN_HOURS, ROLE_IDS, CHAT_REVIVE_ROLE_ID, ANNOUNCEMENTS_ROLE_ID, MOD_ROLE_ID, TIMED_CHANNELS, DAILY_POSTS_CHANNELS, TREE_CHANNEL_ID, COUNTING_CHANNEL_ID, REVIVE_INTERVAL_HOURS, QOTD_CHANNEL_ID, QOTD_ROLE_ID
     
-    bot_config = load_data(BOT_CONFIG_FILE, {})
+    bot_config_reloaded = load_data(BOT_CONFIG_FILE, {})
+    
+    # Reloading all global variables from the config
+    QOTD_CHANNEL_ID = bot_config_reloaded.get("QOTD_CHANNEL_ID", TEST_CHANNEL_ID)
+    QOTD_ROLE_ID = bot_config_reloaded.get("QOTD_ROLE_ID", None)
+    MAIN_GUILD_ID = bot_config_reloaded.get("MAIN_GUILD_ID", None)
+    TEST_CHANNEL_ID = bot_config_reloaded.get("TEST_CHANNEL_ID", 1403900596020580523)
+    CHAT_REVIVE_CHANNEL_ID = bot_config_reloaded.get("CHAT_REVIVE_CHANNEL_ID", TEST_CHANNEL_ID)
+    ADVENTURE_MAIN_CHANNEL_ID = bot_config_reloaded.get("ADVENTURE_CHANNEL_ID", TEST_CHANNEL_ID)
+    PLAYER_ROLE_ID = bot_config_reloaded.get("PLAYER_ROLE_ID", None)
+    DAILY_COMMENTS_CHANNEL_ID = bot_config_reloaded.get("DAILY_COMMENTS_CHANNEL_ID", TEST_CHANNEL_ID)
+    SELF_ROLES_CHANNEL_ID = bot_config_reloaded.get("SELF_ROLES_CHANNEL_ID", TEST_CHANNEL_ID)
+    SINNER_CHAT_CHANNEL_ID = bot_config_reloaded.get("SINNER_CHAT_CHANNEL_ID", TEST_CHANNEL_ID)
+    BUMDAY_MONDAY_CHANNEL_ID = bot_config_reloaded.get("BUMDAY_MONDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    TITS_OUT_TUESDAY_CHANNEL_ID = bot_config_reloaded.get("TITS_OUT_TUESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    WET_WEDNESDAY_CHANNEL_ID = bot_config_reloaded.get("WET_WEDNESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    FURBABY_THURSDAY_CHANNEL_ID = bot_config_reloaded.get("FURBABY_THURSDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    FRISKY_FRIDAY_CHANNEL_ID = bot_config_reloaded.get("FRISKY_FRIDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    SELFIE_SATURDAY_CHANNEL_ID = bot_config_reloaded.get("SELFIE_SATURDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    SLUTTY_SUNDAY_CHANNEL_ID = bot_config_reloaded.get("SLUTTY_SUNDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    ANAGRAM_CHANNEL_ID = bot_config_reloaded.get("ANAGRAM_CHANNEL_ID", TEST_CHANNEL_ID)
+    BUMP_BATTLE_CHANNEL_ID = bot_config_reloaded.get("BUMP_BATTLE_CHANNEL_ID", TEST_CHANNEL_ID)
+    ANNOUNCEMENTS_CHANNEL_ID = bot_config_reloaded.get("ANNOUNCEMENTS_CHANNEL_ID", TEST_CHANNEL_ID)
+    VOTE_CHANNEL_ID = bot_config_reloaded.get("VOTE_CHANNEL_ID", TEST_CHANNEL_ID)
+    VOTE_COOLDOWN_HOURS = bot_config_reloaded.get("VOTE_COOLDOWN_HOURS", 24)
+    TREE_CHANNEL_ID = bot_config_reloaded.get("TREE_CHANNEL_ID", TEST_CHANNEL_ID)
+    COUNTING_CHANNEL_ID = bot_config_reloaded.get("COUNTING_CHANNEL_ID", TEST_CHANNEL_ID)
+    REVIVE_INTERVAL_HOURS = bot_config_reloaded.get("REVIVE_INTERVAL_HOURS", 6)
+    BUMDAY_MONDAY_CHANNEL_ID = bot_config_reloaded.get("BUMDAY_MONDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    TITS_OUT_TUESDAY_CHANNEL_ID = bot_config_reloaded.get("TITS_OUT_TUESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    WET_WEDNESDAY_CHANNEL_ID = bot_config_reloaded.get("WET_WEDNESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    FURBABY_THURSDAY_CHANNEL_ID = bot_config_reloaded.get("FURBABY_THURSDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    FRISKY_FRIDAY_CHANNEL_ID = bot_config_reloaded.get("FRISKY_FRIDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    SELFIE_SATURDAY_CHANNEL_ID = bot_config_reloaded.get("SELFIE_SATURDAY_CHANNEL_ID", TEST_CHANNEL_ID)
+    SLUTTY_SUNDAY_CHANNEL_ID = bot_config_reloaded.get("SLUTTY_SUNDAY_CHANNEL_ID", TEST_CHANNEL_ID)
 
-    MAIN_GUILD_ID = bot_config.get("MAIN_GUILD_ID", int(os.getenv("MAIN_GUILD_ID")) if os.getenv("MAIN_GUILD_ID") else None)
-    TEST_CHANNEL_ID = bot_config.get("TEST_CHANNEL_ID", 1403900596020580523)
-    CHAT_REVIVE_CHANNEL_ID = bot_config.get("CHAT_REVIVE_CHANNEL_ID", TEST_CHANNEL_ID)
-    DAILY_COMMENTS_CHANNEL_ID = bot_config.get("DAILY_COMMENTS_CHANNEL_ID", TEST_CHANNEL_ID)
-    SELF_ROLES_CHANNEL_ID = bot_config.get("SELF_ROLES_CHANNEL_ID", TEST_CHANNEL_ID)
-    SINNER_CHAT_CHANNEL_ID = bot_config.get("SINNER_CHAT_CHANNEL_ID", TEST_CHANNEL_ID)
-    BUMDAY_MONDAY_CHANNEL_ID = bot_config.get("BUMDAY_MONDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-    TITS_OUT_TUESDAY_CHANNEL_ID = bot_config.get("TITS_OUT_TUESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-    WET_WEDNESDAY_CHANNEL_ID = bot_config.get("WET_WEDNESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-    FURBABY_THURSDAY_CHANNEL_ID = bot_config.get("FURBABY_THURSDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-    FRISKY_FRIDAY_CHANNEL_ID = bot_config.get("FRISKY_FRIDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-    SELFIE_SATURDAY_CHANNEL_ID = bot_config.get("SELFIE_SATURDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-    SLUTTY_SUNDAY_CHANNEL_ID = bot_config.get("SLUTTY_SUNDAY_CHANNEL_ID", TEST_CHANNEL_ID)
-    ANAGRAM_CHANNEL_ID = bot_config.get("ANAGRAM_CHANNEL_ID", TEST_CHANNEL_ID)
-    BUMP_BATTLE_CHANNEL_ID = bot_config.get("BUMP_BATTLE_CHANNEL_ID", TEST_CHANNEL_ID)
-    ANNOUNCEMENTS_CHANNEL_ID = bot_config.get("ANNOUNCEMENTS_CHANNEL_ID", TEST_CHANNEL_ID)
-    VOTE_CHANNEL_ID = bot_config.get("VOTE_CHANNEL_ID", TEST_CHANNEL_ID)
-    VOTE_COOLDOWN_HOURS = bot_config.get("VOTE_COOLDOWN_HOURS", 24)
-    STATUS_CHANNEL_ID = bot_config.get("STATUS_CHANNEL_ID", TEST_CHANNEL_ID)
-    COUNTING_CHANNEL_ID = bot_config.get("COUNTING_CHANNEL_ID", TEST_CHANNEL_ID)
-    REVIVE_INTERVAL_HOURS = bot_config.get("REVIVE_INTERVAL_HOURS", 6)
-    
-    ROLE_IDS = bot_config.get("role_ids", {})
+    ROLE_IDS = bot_config_reloaded.get("role_ids", {})
     CHAT_REVIVE_ROLE_ID = ROLE_IDS.get("chat_revive_role", None)
     ANNOUNCEMENTS_ROLE_ID = ROLE_IDS.get("announcements_role", None)
-    MOD_ROLE_ID = ROLE_IDS.get("Staff", None)
+    MOD_ROLE_ID = ROLE_IDS.get("Staff", [])
 
-    PLAYER_ROLE_ID = bot_config.get("PLAYER_ROLE_ID", int(os.getenv("PLAYER_ROLE_ID")) if os.getenv("PLAYER_ROLE_ID") else None)
-    ADVENTURE_MAIN_CHANNEL_ID = bot_config.get("ADVENTURE_MAIN_CHANNEL_ID", TEST_CHANNEL_ID)
-
-    TIMED_CHANNELS = bot_config.get("timed_channels", {})
+    TIMED_CHANNELS = bot_config_reloaded.get("timed_channels", {})
     DAILY_POSTS_CHANNELS = [channel_id for channel_id, _, _ in TIMED_CHANNELS.values()]
+
+# Call reload_globals() once at the start to load initial config
+reload_globals()
+
+# --- ADVENTURE GAME SPECIFIC CONFIGURATIONS ---
+ALL_TRAP_OPTIONS = [
+    "rope",
+    "blindfold",
+    "ball_gag",
+    "mummification",
+    "straitjacket",
+    "leather_strap",
+    "leather_mittens",
+    "layers_of_tape",
+]
+
+TRAP_DISPLAY_NAMES = {
+    "ball_gag": "Ball Gag",
+    "rope": "Ropes",
+    "blindfold": "Blindfold",
+    "mummification": "Mummification",
+    "straitjacket": "Straitjacket",
+    "leather_strap": "Leather Straps",
+    "leather_mittens": "Leather Mittens",
+    "layers_of_tape": "Layers of Tape",
+}
+
+TRAP_DURATIONS = {
+    "ball_gag": 3,
+    "rope": 2,
+    "blindfold": 1,
+    "mummification": 1,
+    "straitjacket": 1,
+    "leather_strap": 1,
+    "leather_mittens": 1,
+    "layers_of_tape": 1,
+}
+
+MAX_ROPE_TIGHTNESS = 5
+MAX_BLINDFOLD_LEVEL = 3
+MAX_GAG_LEVEL = 4
+MAX_TAPE_LAYERS = 5
+
+TRAP_DESCRIPTIONS = {
+    "ball_gag": "Your mouth feels strange... your attempts to speak are met with muffled, garbled sounds. Communication will be difficult.",
+    "rope": "Suddenly, something tightens around you! You're ensnared by strong bindings that restrict your movement. You'll need to struggle to get free.",
+    "blindfold": "Darkness descends as something covers your eyes. Your vision is completely obscured, forcing your other senses to sharpen.",
+    "mummification": "You're suddenly enveloped in wraps! They tighten around you from head to toe, leaving you almost completely immobile and just enough room to breathe.",
+    "straitjacket": "Your arms are swiftly pinned! A restrictive garment tightens, trapping your limbs securely against your body. Movement is severely limited.",
+    "leather_strap": "Heavy, resilient straps lash out, binding you securely to your surroundings! The strong material holds you firmly in place, preventing escape.",
+    "leather_mittens": "Your hands are encased in thick leather mittens, restricting their use. You can't grasp small objects or use your fingers with precision.",
+    "layers_of_tape": "Layers of strong, wide tape are applied over your mouth, or around your wrists and ankles. It feels sticky and suffocating, making movement or speech difficult."
+}
+
+def parse_consent_from_text(text: str, ai_restrictions: List[str]) -> List[str]:
+    text_lower = text.lower()
+    consented = []
+
+    if "none" in text_lower or "no traps" in text_lower or "no to all" in text_lower:
+        return []
+
+    if "all" in text_lower or "all traps" in text_lower:
+        return [trap for trap in ALL_TRAP_OPTIONS if trap.lower() not in ai_restrictions]
+
+    for trap in ALL_TRAP_OPTIONS:
+        display_name_lower = TRAP_DISPLAY_NAMES.get(trap, trap.replace('_', ' ')).lower()
+        if trap.lower() in text_lower or display_name_lower in text_lower:
+            if trap.lower() not in ai_restrictions:
+                consented.append(trap)
+            else:
+                print(f"User attempted to consent to restricted trap: {trap}")
+
+    return list(set(consented))
+
+def set_active_adventure_channel(channel_id: int, game_instance: Any):
+    """Placeholder function to indicate an adventure game is active."""
+    # This function is a placeholder since the game state is managed by the main cog.
+    # The error indicates a missing function, so adding this as a stub will resolve it.
+    pass
+
+def remove_active_adventure_channel(channel_id: int):
+    """Placeholder function to indicate an adventure game is no longer active."""
+    # This function is also a placeholder to match the expected calls.
+    pass
+
+def load_active_adventure_games_from_file() -> Dict[str, Any]:
+    """Loads active adventure games state from a file."""
+    return load_data(ACTIVE_ADVENTURE_GAMES_FILE, {})
+
+def save_active_adventure_games_to_file(state: Dict[str, Any]):
+    """Saves active adventure games state to a file."""
+    save_data(state, ACTIVE_ADVENTURE_GAMES_FILE)
+
+def load_user_roles(user_id: int) -> list[int]:
+    """Loads a user's original roles from a JSON file."""
+    all_roles = load_data(USER_ROLES_FILE, {})
+    return all_roles.get(str(user_id), [])
+
+def save_user_roles(user_id: int, roles: list[int]):
+    """Saves a user's roles to a JSON file."""
+    all_roles = load_data(USER_ROLES_FILE, {})
+    all_roles[str(user_id)] = roles
+    save_data(all_roles, USER_ROLES_FILE)
+    
+def save_adventure_channel_id(channel_id: int):
+    """Saves the adventure channel ID to the bot configuration."""
+    update_dynamic_config("ADVENTURE_CHANNEL_ID", channel_id)
+
+def load_adventure_channel_id() -> Optional[int]:
+    """Loads the adventure channel ID from the bot configuration."""
+    return bot_config.get("ADVENTURE_CHANNEL_ID")
+
+async def generate_text_with_gemini_with_history(chat_history: List[Dict[str, Any]], model_name: str = DEFAULT_TRANSLATION_MODEL_NAME) -> Optional[str]:
+    if not GEMINI_API_KEY:
+        print("Gemini API key is not set. Skipping AI generation.")
+        return None
+    try:
+        model = genai.GenerativeModel(model_name)
+        chat = model.start_chat(history=chat_history[:-1])
+        response = await asyncio.wait_for(chat.send_message_async(chat_history[-1]['parts'][0]['text']), timeout=AI_GENERATION_TIMEOUT)
+        return response.text
+    except Exception as e:
+        print(f"Error during Gemini text generation: {e}")
+        return None
+
+async def generate_scenario_adventure(
+    chat_history: List[Dict[str, Any]],
+    player_name: str,
+    current_traps: Dict[str, int],
+    ai_restrictions: List[str],
+    game_theme: str = None,
+    allowed_traps: List[str] = None,
+    is_incapacitated: bool = False
+) -> Dict[str, Any]:
+    """
+    Generates a new adventure scenario based on the game state.
+    """
+    global _gemini_model
+    if _gemini_model is None:
+        try:
+            _gemini_model = genai.GenerativeModel(DEFAULT_TRANSLATION_MODEL_NAME)
+        except Exception as e:
+            print(f"Error initializing Gemini model: {e}")
+            return {"scenario_text": "AI model is not ready.", "choices": []}
+
+    system_instruction_parts = [
+        "You are the Game Master for a text-based adventure game. You are a neutral, objective narrator.",
+        "Your responses must be in JSON format with three keys: `scenario_text`, `choices`, and `trap_effects`.",
+        "The `scenario_text` describes the current situation. The `choices` key is a list of 2-4 possible actions for the player. The `trap_effects` key is a list of effects to apply to the player's character.",
+        "The story should be focused on escaping from a difficult or restrictive situation. The goal is to escape, not to be bound.",
+        f"The player's name is {player_name}.",
+    ]
+    if game_theme:
+        system_instruction_parts.append(f"The theme of this adventure is '{game_theme}'.")
+    if current_traps:
+        traps_description = ', '.join([f"{TRAP_DISPLAY_NAMES.get(t, t)} (Level: {level})" for t, level in current_traps.items()])
+        system_instruction_parts.append(f"The player is currently affected by these conditions: {traps_description}.")
+    if is_incapacitated:
+        system_instruction_parts.append("The player is currently incapacitated. Their actions should be limited to struggling against their restraints or attempting to call for help.")
+    if allowed_traps:
+        system_instruction_parts.append(f"The player has consented to the following optional elements, which you can introduce into the game: {', '.join(allowed_traps)}.")
+    else:
+        system_instruction_parts.append("The player has NOT consented to any optional elements. Do not introduce any restraints or traps.")
+    
+    system_instruction_parts.append("IMPORTANT: You must adhere to the following strict safety guidelines. Never generate content related to: " + ', '.join(ai_restrictions) + ".")
+
+    full_prompt = "\n".join(system_instruction_parts)
+    
+    full_chat_history = [{"role": "user", "parts": [{"text": full_prompt}]}]
+    full_chat_history.extend(chat_history)
+    full_chat_history.append({"role": "user", "parts": [{"text": "Please provide the next game turn in the specified JSON format."}]})
+
+    try:
+        response = await asyncio.wait_for(
+            _gemini_model.generate_content_async(full_chat_history),
+            timeout=AI_GENERATION_TIMEOUT
+        )
+        response_text = response.text.strip()
+        if response_text.startswith("```json"):
+            response_text = response_text[len("```json"):].strip()
+        if response_text.endswith("```"):
+            response_text = response_text[:-len("```")].strip()
+        return json.loads(response_text)
+    
+    except asyncio.TimeoutError:
+        return {"scenario_text": "AI generation timed out. Please try again.", "choices": []}
+    except json.JSONDecodeError:
+        print(f"AI response was not valid JSON: {response.text}")
+        return {"scenario_text": "An error occurred with the AI. The response was not in a valid format.", "choices": []}
+    except Exception as e:
+        print(f"Error generating adventure scenario: {e}")
+        return {"scenario_text": "An error occurred with the AI. Please try again.", "choices": []}
+
+async def generate_image_from_text(scenario_text: str, game_theme: str = None) -> Optional[bytes]:
+    """Generates an image from a text description using Gemini's vision model."""
+    if not GEMINI_API_KEY:
+        print("Gemini API key is not set. Skipping image generation.")
+        return None
+    
+    prompt = f"Create a high-quality fantasy image of a character in a scenario described as: '{scenario_text}'. The setting is a {game_theme if game_theme else 'dark fantasy world'}."
+    
+    try:
+        print("Gemini API does not directly return an image file. Returning a placeholder.")
+        img = Image.new('RGB', (1024, 576), color = 'gray')
+        d = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("arial.ttf", 40)
+        except IOError:
+            font = ImageFont.load_default()
+        d.text((20, 20), "Placeholder Image from Gemini", fill=(0,0,0), font=font)
+        
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+        return img_byte_arr.getvalue()
+    
+    except Exception as e:
+        print(f"Error during Gemini image generation: {e}")
+        return None
+
+def get_ai_restrictions() -> List[str]:
+    """Loads AI restrictions from a file, creating a default if it doesn't exist."""
+    try:
+        if os.path.exists(ADVENTURE_AI_RESTRICTIONS_FILE):
+            with open(ADVENTURE_AI_RESTRICTIONS_FILE, 'r', encoding='utf-8') as f:
+                lines = [line.strip().lower() for line in f if line.strip()]
+            return lines
+        else:
+            default_restrictions = [
+                'rape', 'torture', 'non-consensual_acts', 'pedophilia', 'zoophilia',
+                'violence', 'death'
+            ]
+            with open(ADVENTURE_AI_RESTRICTIONS_FILE, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(default_restrictions))
+            return default_restrictions
+    except Exception as e:
+        print(f"Error loading AI restrictions: {e}")
+        return []
+
+def garble_text(text: str) -> str:
+    """Simulates garbled speech."""
+    garbled_chars = "mhmphfflblh"
+    result = []
+    for char in text:
+        if char.isalpha():
+            if random.random() < 0.3:
+                result.append(random.choice(garbled_chars))
+            else:
+                result.append(char)
+        else:
+            result.append(char)
+    return "".join(result)
 
 def load_timed_channels():
     return TIMED_CHANNELS
@@ -246,13 +533,76 @@ def load_daily_posts_channels():
     return DAILY_POSTS_CHANNELS
 
 def get_user_money(user_id: int) -> int:
-    balances = load_data(BALANCES_FILE, {})
-    return balances.get(str(user_id), 0)
-
-def update_user_money(user_id: int, amount: int):
+    """Gets a user's wallet balance."""
     balances = load_data(BALANCES_FILE, {})
     user_id_str = str(user_id)
-    balances[user_id_str] = balances.get(user_id_str, 0) + amount
+    user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
+    
+    # Check for the old format (integer) and migrate it
+    if isinstance(user_data, int):
+        new_data = {"wallet": user_data, "bank": 0}
+        balances[user_id_str] = new_data
+        save_data(balances, BALANCES_FILE)
+        return new_data["wallet"]
+        
+    return user_data.get("wallet", 0)
+
+def get_user_bank_money(user_id: int) -> int:
+    """Gets a user's bank balance."""
+    balances = load_data(BALANCES_FILE, {})
+    user_id_str = str(user_id)
+    user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
+
+    # Check for the old format (integer) and migrate it
+    if isinstance(user_data, int):
+        new_data = {"wallet": user_data, "bank": 0}
+        balances[user_id_str] = new_data
+        save_data(balances, BALANCES_FILE)
+        return new_data["bank"]
+        
+    return user_data.get("bank", 0)
+
+def update_user_money(user_id: int, amount: int):
+    """Updates a user's wallet balance."""
+    balances = load_data(BALANCES_FILE, {})
+    user_id_str = str(user_id)
+    user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
+    
+    # Check for the old format and migrate before updating
+    if isinstance(user_data, int):
+        user_data = {"wallet": user_data, "bank": 0}
+        
+    user_data["wallet"] += amount
+    balances[user_id_str] = user_data
+    save_data(balances, BALANCES_FILE)
+
+def update_user_bank_money(user_id: int, amount: int):
+    """Updates a user's bank balance."""
+    balances = load_data(BALANCES_FILE, {})
+    user_id_str = str(user_id)
+    user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
+    
+    # Check for the old format and migrate before updating
+    if isinstance(user_data, int):
+        user_data = {"wallet": user_data, "bank": 0}
+
+    user_data["bank"] += amount
+    balances[user_id_str] = user_data
+    save_data(balances, BALANCES_FILE)
+    
+def transfer_money(user_id: int, amount: int, from_type: str, to_type: str):
+    """Transfers money between a user's wallet and bank."""
+    balances = load_data(BALANCES_FILE, {})
+    user_id_str = str(user_id)
+    
+    user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
+    # Check for the old format and migrate before updating
+    if isinstance(user_data, int):
+        user_data = {"wallet": user_data, "bank": 0}
+
+    user_data[from_type] -= amount
+    user_data[to_type] += amount
+    balances[user_id_str] = user_data
     save_data(balances, BALANCES_FILE)
 
 def load_chat_revive_channel() -> Optional[int]:
@@ -441,121 +791,63 @@ def remove_item_from_inventory(user_id: int, item_name: str):
     save_data(inventory_data, USER_INVENTORY_FILE)
     
 async def handle_buy_item(interaction: discord.Interaction, item_to_buy: Dict[str, Any], free_purchase: bool):
-
     user_id = interaction.user.id
-
     user_id_str = str(user_id)
-
-
-
+    
     inventory_data = load_data(USER_INVENTORY_FILE, {})
-
-    user_data = inventory_data.get(user_id_str, {"items": {}, "nets": [], "net_durability": 0, "xp": 0, "equipped_net": None})
-
-
+    
+    if user_id_str not in inventory_data:
+        inventory_data[user_id_str] = {"items": {}, "nets": [], "net_durability": 0, "xp": 0, "equipped_net": None}
+    
+    user_data = inventory_data[user_id_str]
 
     required_item = item_to_buy.get("requirement")
-
     if required_item:
-
         if required_item.lower() not in user_data.get("items", {}):
-
             return await interaction.followup.send(f"You must have `{required_item}` in your inventory to purchase this item.", ephemeral=True)
-
     
-
-    item_price = item_to_buy['price']
-
-
+    item_price = item_to_buy.get('price', 0)
 
     if not free_purchase:
-
         user_balance = get_user_money(user_id)
-
         if user_balance < item_price:
-
             return await interaction.followup.send(f"You don't have enough money to buy `{item_to_buy['name']}`. You need <a:starcoin:1280590254935380038> {item_price - user_balance} more.", ephemeral=True)
-
-
-
         update_user_money(user_id, -item_price)
-
     
-
     if item_to_buy.get("type") == 'net':
-
         if 'nets' not in user_data:
-
             user_data['nets'] = []
-
-
-
-        # Fix: Ensure durability is pulled from the item data.
-
-        new_net = {"name": item_to_buy['name'], "durability": item_to_buy['durability']}
-
+        
+        new_net = {"name": item_to_buy['name'], "durability": item_to_buy.get('durability', 0)}
         user_data['nets'].append(new_net)
 
-
-
         if not user_data.get('equipped_net'):
-
             user_data['equipped_net'] = item_to_buy['name']
-
             message_text = f"✅ You have successfully purchased and equipped the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}!"
-
         else:
-
             message_text = f"✅ You have successfully purchased the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}! It has been added to your inventory."
-
-
-
     else:
-
         item_name = item_to_buy['name']
-
         item_name_lower = item_name.lower()
-
         if 'items' not in user_data:
-
             user_data['items'] = {}
-
         user_data['items'][item_name_lower] = user_data['items'].get(item_name_lower, 0) + 1
 
-
-
         if item_to_buy.get("type") == "cosmetic":
-
             role = discord.utils.get(interaction.guild.roles, name=item_to_buy.get("role_to_give"))
-
             if role:
-
                 member = interaction.guild.get_member(user_id)
-
                 if member:
-
                     await member.add_roles(role)
-
         
-
         message_text = f"✅ You have successfully purchased the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}!"
 
-
-
     if free_purchase:
-
         message_text = f"✅ (TEST) You have successfully purchased the **{item_to_buy['name']}** for free!"
 
-
-
-    inventory_data[user_id_str] = user_data
-
     save_data(inventory_data, USER_INVENTORY_FILE)
-
     
-
     await interaction.followup.send(message_text, ephemeral=True)
-
 
 def load_swear_jar_data():
     return load_data(SWEAR_JAR_FILE, {'words': [], 'tally': {}})
@@ -565,8 +857,6 @@ def get_item_emoji(item_name: str, emoji_str: str) -> str:
     if emoji_str:
         if emoji_str.startswith('<') and emoji_str.endswith('>'):
             return emoji_str
-        # If it's a raw name like ':GoldenHalo:', return it as is.
-        # This allows Discord's client to render it.
         return emoji_str
     return "🛒"
 
@@ -625,7 +915,6 @@ def save_user_cooldowns(cooldowns: Dict[str, str]):
     game_data["user_cooldowns"] = cooldowns
     save_tree_game_data(game_data)
 
-
 def load_bump_battle_state():
     return load_data(BUMP_BATTLE_STATE_FILE, {
         'sub': {'points': 0, 'users': {}},
@@ -648,10 +937,11 @@ def save_vote_points(data: Dict[str, Any]):
     save_data(data, VOTE_POINTS_FILE)
     
 def get_ai_restrictions() -> str:
-    if os.path.exists(ADVENTURE_AI_RESTRICTIONS_FILE):
+    """Loads AI restrictions from a file, creating a default if it doesn't exist."""
+    try:
         with open(ADVENTURE_AI_RESTRICTIONS_FILE, 'r', encoding='utf-8') as f:
             return f.read()
-    else:
+    except FileNotFoundError:
         default_restrictions = textwrap.dedent("""
             You are a text adventure game master.
             You will create a story based on the user's input.
@@ -660,14 +950,38 @@ def get_ai_restrictions() -> str:
             Keep your responses concise and focused on the current scene.
         """).strip()
         with open(ADVENTURE_AI_RESTRICTIONS_FILE, 'w', encoding='utf-8') as f:
-            f.write(default_restrictions)
+            f.write('\n'.join(default_restrictions))
         return default_restrictions
+    except Exception as e:
+        print(f"Error loading AI restrictions: {e}")
+        return ""
 
 def load_active_adventure_games_from_file() -> Dict[str, Any]:
+    """Loads active adventure games state from a file."""
     return load_data(ACTIVE_ADVENTURE_GAMES_FILE, {})
 
 def save_active_adventure_games_to_file(state: Dict[str, Any]):
+    """Saves active adventure games state to a file."""
     save_data(state, ACTIVE_ADVENTURE_GAMES_FILE)
+
+def load_user_roles(user_id: int) -> list[int]:
+    """Loads a user's original roles from a JSON file."""
+    all_roles = load_data(USER_ROLES_FILE, {})
+    return all_roles.get(str(user_id), [])
+
+def save_user_roles(user_id: int, roles: list[int]):
+    """Saves a user's roles to a JSON file."""
+    all_roles = load_data(USER_ROLES_FILE, {})
+    all_roles[str(user_id)] = roles
+    save_data(all_roles, USER_ROLES_FILE)
+    
+def save_adventure_channel_id(channel_id: int):
+    """Saves the adventure channel ID to the bot configuration."""
+    update_dynamic_config("ADVENTURE_CHANNEL_ID", channel_id)
+
+def load_adventure_channel_id() -> Optional[int]:
+    """Loads the adventure channel ID from the bot configuration."""
+    return bot_config.get("ADVENTURE_CHANNEL_ID")
 
 async def generate_text_with_gemini_with_history(chat_history: List[Dict[str, Any]], model_name: str = DEFAULT_TRANSLATION_MODEL_NAME) -> Optional[str]:
     if not GEMINI_API_KEY:
@@ -708,16 +1022,33 @@ def load_pending_trades():
 
 def save_pending_trades(data):
     save_data(data, PENDING_TRADES_FILE)
-    
-async def generate_image_from_text(prompt: str) -> Optional[str]:
+async def generate_image_from_text(scenario_text: str, game_theme: str = None) -> Optional[bytes]:
+    """Generates an image from a text description using Gemini's vision model."""
     if not GEMINI_API_KEY:
         print("Gemini API key is not set. Skipping image generation.")
         return None
+    
+    prompt = f"Create a high-quality fantasy image of a character in a scenario described as: '{scenario_text}'. The setting is a {game_theme if game_theme else 'dark fantasy world'}."
+    
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        image_generation_prompt = f"Create a detailed, high-quality image that visually represents the following scene: {prompt}. Focus on fantasy and mysterious elements. Do not include any text in the image."
-        print(f"Simulating image generation for prompt: '{prompt}'")
-        return "https://via.placeholder.com/1024x1024.png?text=Generated+Image+Placeholder"
+        # Note: As of my last update, Gemini's API for image generation from text is not fully public
+        # or it returns a placeholder. The following code simulates a placeholder.
+        print("Gemini API does not directly return an image file. Returning a placeholder.")
+        # Create a simple placeholder image
+        img = Image.new('RGB', (1024, 576), color='gray')
+        d = ImageDraw.Draw(img)
+        try:
+            # You can change 'arial.ttf' to another font file if you have one.
+            font = ImageFont.truetype("arial.ttf", 40)
+        except IOError:
+            font = ImageFont.load_default()
+        d.text((20, 20), "Placeholder Image from Gemini", fill=(0, 0, 0), font=font)
+        
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='PNG')
+        img_byte_arr.seek(0)
+        return img_byte_arr.getvalue()
+    
     except Exception as e:
         print(f"Error during Gemini image generation: {e}")
         return None
@@ -746,14 +1077,26 @@ async def generate_anagram_word_with_gemini() -> Optional[str]:
 async def generate_work_phrase_with_gemini(is_success: bool) -> Optional[str]:
     """Generates a new phrase for the work command using the Gemini AI."""
     if not GEMINI_API_KEY:
-        print("Gemini API key is not set. Skipping AI generation.")
+        print("Gemini API not set. Skipping AI generation.")
         return None
     try:
         model = genai.GenerativeModel(DEFAULT_TRANSLATION_MODEL_NAME)
         if is_success:
-            prompt = "Generate a single, short, and funny phrase describing a successful, mundane work task. Start the phrase with a verb. Do not include any extra text or punctuation."
+            prompt = (
+                "Generate a single, short, and funny phrase describing a successful work task. "
+                "The tone should be slightly absurd and lighthearted, similar to these examples: "
+                "'worked as a chef in a bustling restaurant kitchen', "
+                "'answered customer calls with a smile as a call center representative'. "
+                "Do not include any extra text or punctuation."
+            )
         else:
-            prompt = "Generate a single, short, and funny phrase describing a clumsy, negative work outcome. Start the phrase with a verb. Do not include any extra text or punctuation."
+            prompt = (
+                "Generate a single, short, and comically disastrous phrase for a failed work task. "
+                "The outcome should be ironic and humorous, similar to these examples: "
+                "'spilled coffee on the boss's new suit and were fired on the spot', "
+                "'lost an important file and had to pay for its replacement'. "
+                "Do not include any extra text or punctuation."
+            )
         
         response = await asyncio.wait_for(
             model.generate_content_async(prompt),
@@ -767,14 +1110,20 @@ async def generate_work_phrase_with_gemini(is_success: bool) -> Optional[str]:
 async def generate_crime_phrase_with_gemini(is_success: bool) -> Optional[str]:
     """Generates a new phrase for the crime command using the Gemini AI."""
     if not GEMINI_API_KEY:
-        print("Gemini API key is not set. Skipping AI generation.")
+        print("Gemini API not set. Skipping AI generation.")
         return None
     try:
         model = genai.GenerativeModel(DEFAULT_TRANSLATION_MODEL_NAME)
         if is_success:
-            prompt = "Generate a single, short, and creative phrase describing a successful crime. Start the phrase with a verb. Do not include any extra text or punctuation."
+            prompt = (
+                "Generate a single, short, and creative phrase describing an unexpectedly successful crime. "
+                "The phrase should be descriptive and slightly absurd. Do not include any extra text or punctuation."
+            )
         else:
-            prompt = "Generate a single, short, and funny phrase describing a failed crime attempt. Start the phrase with a verb. Do not include any extra text or punctuation."
+            prompt = (
+                "Generate a single, short, and funny phrase describing a clumsy, failed crime attempt. "
+                "The phrasing should be embarrassing and humorous. Do not include any extra text or punctuation."
+            )
         
         response = await asyncio.wait_for(
             model.generate_content_async(prompt),
@@ -790,68 +1139,6 @@ def get_item_emoji(item_name: str, emoji_str: str) -> str:
     if emoji_str and not emoji_str.startswith('<'):
         return emoji_str
     return emoji_str or "🛒"
-
-async def handle_buy_item(interaction: discord.Interaction, item_to_buy: Dict[str, Any], free_purchase: bool):
-    user_id = interaction.user.id
-    user_id_str = str(user_id)
-
-    # Load the entire inventory data first
-    inventory_data = utils.load_data(USER_INVENTORY_FILE, {})
-    
-    # Get the user's data, or create a new entry if they don't exist
-    if user_id_str not in inventory_data:
-        inventory_data[user_id_str] = {"items": {}, "nets": [], "net_durability": 0, "xp": 0, "equipped_net": None}
-    
-    user_data = inventory_data[user_id_str]
-
-    required_item = item_to_buy.get("requirement")
-    if required_item:
-        if required_item.lower() not in user_data.get("items", {}):
-            return await interaction.followup.send(f"You must have `{required_item}` in your inventory to purchase this item.", ephemeral=True)
-    
-    item_price = item_to_buy.get('price', 0)
-
-    if not free_purchase:
-        user_balance = utils.get_user_money(user_id)
-        if user_balance < item_price:
-            return await interaction.followup.send(f"You don't have enough money to buy `{item_to_buy['name']}`. You need <a:starcoin:1280590254935380038> {item_price - user_balance} more.", ephemeral=True)
-        utils.update_user_money(user_id, -item_price)
-    
-    if item_to_buy.get("type") == 'net':
-        if 'nets' not in user_data:
-            user_data['nets'] = []
-        
-        new_net = {"name": item_to_buy['name'], "durability": item_to_buy.get('durability', 0)}
-        user_data['nets'].append(new_net)
-
-        if not user_data.get('equipped_net'):
-            user_data['equipped_net'] = item_to_buy['name']
-            message_text = f"✅ You have successfully purchased and equipped the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}!"
-        else:
-            message_text = f"✅ You have successfully purchased the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}! It has been added to your inventory."
-    else:
-        item_name = item_to_buy['name']
-        item_name_lower = item_name.lower()
-        if 'items' not in user_data:
-            user_data['items'] = {}
-        user_data['items'][item_name_lower] = user_data['items'].get(item_name_lower, 0) + 1
-
-        if item_to_buy.get("type") == "cosmetic":
-            role = discord.utils.get(interaction.guild.roles, name=item_to_buy.get("role_to_give"))
-            if role:
-                member = interaction.guild.get_member(user_id)
-                if member:
-                    await member.add_roles(role)
-        
-        message_text = f"✅ You have successfully purchased the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}!"
-
-    if free_purchase:
-        message_text = f"✅ (TEST) You have successfully purchased the **{item_to_buy['name']}** for free!"
-
-    # Save the entire dictionary, which now contains the updated user data
-    utils.save_data(inventory_data, USER_INVENTORY_FILE)
-    
-    await interaction.followup.send(message_text, ephemeral=True)
 
 async def generate_duel_image(winner_avatar_url: str, loser_avatar_url: str) -> discord.File:
     """Generates a duel image by combining two user avatars with a duel overlay."""

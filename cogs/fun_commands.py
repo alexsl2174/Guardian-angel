@@ -1,5 +1,6 @@
+# fun_commands.py
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import Button, View
 from discord import app_commands
 import aiohttp
@@ -57,7 +58,17 @@ class FunCommands(commands.Cog):
 
             command = make_command(gif_type)
             self.bot.tree.add_command(command)
+
+    def cog_unload(self):
+        self.hourly_qotd.cancel()
     
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # Start the task loop only once the bot is ready
+        if not self.hourly_qotd.is_running():
+            print("Starting hourly QOTD task...")
+            self.hourly_qotd.start()
+            
     # NEW FUNCTION: This function will only get the GIF URL and return it
     async def _get_gif_url(self, gif_type: str) -> Optional[str]:
         if not self.FLUXPOINT_API_KEY:
@@ -112,16 +123,54 @@ class FunCommands(commands.Cog):
             if interaction.guild and interaction.guild.id == self.main_guild_id:
                 print(f"ERROR: Couldn't get a GIF for '{gif_type}'.")
             await interaction.followup.send(f"Sorry, I couldn't get a GIF for '{gif_type}'.", ephemeral=True)
-            
-    # New QOTD Commands
+
+    @tasks.loop(hours=24)
+    async def hourly_qotd(self):        
+        qotd_channel_id = utils.QOTD_CHANNEL_ID
+        qotd_role_id = utils.QOTD_ROLE_ID
+        
+        if qotd_channel_id:
+            channel = self.bot.get_channel(qotd_channel_id)
+            if channel:
+                print(f"Attempting to send QOTD to channel ID {qotd_channel_id}")
+                try:
+                    prompt = "Generate a new, creative, and unique question of the day. The question should be a single sentence and not controversial."
+                    qotd_text = await utils.generate_text_with_gemini_with_history(
+                        chat_history=[{"role": "user", "parts": [{"text": prompt}]}]
+                    )
+                    
+                    if qotd_text:
+                        role_mention = ""
+                        if qotd_role_id:
+                            role = channel.guild.get_role(qotd_role_id)
+                            if role:
+                                role_mention = role.mention
+
+                        embed = discord.Embed(
+                            title="❓ Question of the Day",
+                            description=qotd_text,
+                            color=discord.Color.blue()
+                        )
+                        await channel.send(content=role_mention, embed=embed)
+                        print(f"Successfully sent QOTD to channel ID {qotd_channel_id}")
+                    else:
+                        print("Failed to generate a Question of the Day from AI.")
+                except Exception as e:
+                    print(f"Error sending QOTD in scheduled task: {e}")
+            else:
+                print(f"ERROR: QOTD channel with ID {qotd_channel_id} not found.")
+        else:
+            print("ERROR: QOTD_CHANNEL_ID not set in bot_config.json.")
+
     @app_commands.command(name="qotd", description="Gets a new Question of the Day from AI.")
     async def qotd(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         
         prompt = "Generate a new, creative, and unique question of the day. The question should be a single sentence and not controversial."
         try:
-            # Assume utils.generate_text_with_gemini_with_history exists and works
-            qotd_text = "What is a fictional world you would love to live in and why?"
+            qotd_text = await utils.generate_text_with_gemini_with_history(
+                chat_history=[{"role": "user", "parts": [{"text": prompt}]}]
+            )
             
             if qotd_text:
                 embed = discord.Embed(
@@ -146,7 +195,6 @@ class FunCommands(commands.Cog):
             color=discord.Color.blue()
         )
         await interaction.response.send_message(embed=embed)
-
 
 async def setup(bot):
     await bot.add_cog(FunCommands(bot))
