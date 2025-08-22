@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands
+from discord import app_commands, ui
 import json
 import os
 import aiohttp
@@ -8,10 +8,13 @@ import re
 import cogs.utils as utils
 from dotenv import load_dotenv
 import datetime
-from typing import Optional
+from typing import Optional, Literal
 import traceback
 
 load_dotenv()
+
+# A dictionary to temporarily store embed data for each user
+user_embed_data = {}
 
 class EmojiGroup(app_commands.Group):
     def __init__(self):
@@ -143,12 +146,151 @@ class CurrencyGroup(app_commands.Group):
         utils.update_user_money(member.id, -amount)
         await interaction.followup.send(f"Successfully removed {amount} coins from {member.mention}'s balance.", ephemeral=True)
 
+class EmbedConfirmView(ui.View):
+    def __init__(self, user_id):
+        super().__init__(timeout=180)
+        self.user_id = user_id
+
+    @ui.button(label="Yes", style=discord.ButtonStyle.green)
+    async def yes_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("You are not the user who ran this command.", ephemeral=True)
+            return
+
+        embed_data = user_embed_data.get(self.user_id)
+        if not embed_data:
+            await interaction.response.send_message("Failed to retrieve embed data. Please run the command again.", ephemeral=True)
+            return
+
+        channel = interaction.client.get_channel(embed_data["channel_id"])
+        if not channel:
+            await interaction.response.send_message("The channel could not be found.", ephemeral=True)
+            return
+
+        mention_string = embed_data["mention_string"] if embed_data["mention_string"] else ""
+        
+        await channel.send(content=mention_string, embed=embed_data["embed"])
+        
+        self.stop()
+        await interaction.response.edit_message(content="Embed sent successfully!", embed=None, view=None)
+        del user_embed_data[self.user.id]
+
+    @ui.button(label="No", style=discord.ButtonStyle.red)
+    async def no_button(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("You are not the user who ran this command.", ephemeral=True)
+            return
+            
+        self.stop()
+        await interaction.response.edit_message(content="Embed not sent. You can use `/sendembed` again to try again.", embed=None, view=None)
+        del user_embed_data[self.user_id]
+
 class AdminTools(commands.Cog):
     """A cog for server administration, verification, and automated tasks."""
     def __init__(self, bot):
         self.bot = bot
         self.bot.tree.add_command(EmojiGroup())
         self.bot.tree.add_command(CurrencyGroup())
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        await self.bot.tree.sync()
+        self.periodic_revive.start()
+        self.daily_post_task.start()
+        self.check_timed_roles.start()
+        print("Scheduled tasks started and commands synced.")
+
+    @app_commands.command(name="set_timed_role", description="Adds or updates a global timed role.")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.describe(
+        role="The role to be added/removed.",
+        hours="Duration in hours for a one-time or daily repeatable role.",
+        day_of_week="The day of the week to apply the role for one-time or weekly repeatable roles.",
+        repeatable="If true, the role will repeat daily or weekly."
+    )
+    @app_commands.autocomplete(day_of_week=utils.day_of_week_autocomplete)
+    async def set_timed_role(self, interaction: discord.Interaction, role: discord.Role, hours: Optional[int] = None, day_of_week: Optional[str] = None, repeatable: Optional[bool] = False):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            guild_id = interaction.guild_id
+
+            if repeatable:
+                if hours is not None and hours > 0:
+                    # Daily repeatable role based on hours
+                    utils.save_timed_role_data(guild_id, role.id, None, True, "daily", hours)
+                    await interaction.followup.send(f"Timed role {role.mention} has been set to repeat daily, being removed after {hours} hour(s).", ephemeral=True)
+                elif day_of_week:
+                    # Weekly repeatable role based on day of week
+                    days_of_week_map = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4, 'Saturday': 5, 'Sunday': 6}
+                    if day_of_week not in days_of_week_map:
+                        await interaction.followup.send("Invalid `day_of_week` specified. Please use the autocomplete options.", ephemeral=True)
+                        return
+                    utils.save_timed_role_data(guild_id, role.id, None, True, day_of_week, None)
+                    await interaction.followup.send(f"Timed role {role.mention} has been set to repeat weekly on {day_of_week}.", ephemeral=True)
+                else:
+                    await interaction.followup.send("You must provide either `hours` or a `day_of_week` for a repeatable role.", ephemeral=True)
+            else: # Not repeatable
+                if hours is not None and hours > 0:
+                    # One-time role based on hours
+                    expiration_date = datetime.datetime.now() + datetime.timedelta(hours=hours)
+                    duration_text = f"{hours} hour(s)"
+                    utils.save_timed_role_data(guild_id, role.id, expiration_date.isoformat(), False, None, None)
+                    await interaction.followup.send(f"Timed role {role.mention} has been set to expire in {duration_text}.", ephemeral=True)
+                elif day_of_week:
+                    # One-time role based on day of week
+                    days_of_week_map = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4, 'Saturday': 5, 'Sunday': 6}
+                    if day_of_week not in days_of_week_map:
+                        await interaction.followup.send("Invalid `day_of_week` specified. Please use the autocomplete options.", ephemeral=True)
+                        return
+
+                    today = datetime.datetime.now()
+                    target_day_index = days_of_week_map[day_of_week]
+                    current_day_index = today.weekday()
+                    
+                    days_until = target_day_index - current_day_index
+                    if days_until <= 0:
+                        days_until += 7
+                    
+                    expiration_date = today + datetime.timedelta(days=days_until)
+                    duration_text = f"until next {day_of_week}"
+                    utils.save_timed_role_data(guild_id, role.id, expiration_date.isoformat(), False, None, None)
+                    await interaction.followup.send(f"Timed role {role.mention} has been set to expire {duration_text}.", ephemeral=True)
+                else:
+                    await interaction.followup.send("You must provide either a duration in `hours` or a `day_of_week` for a one-time role.", ephemeral=True)
+
+        except ValueError as e:
+            await interaction.followup.send(f"Invalid input provided: {e}. Please check your values.", ephemeral=True)
+        except Exception as e:
+            print(f"Error in set_timed_role: {traceback.format_exc()}")
+            await interaction.followup.send(f"An unexpected error occurred: {e}", ephemeral=True)
+
+    @app_commands.command(name="littleaccess", description="[Staff Only] Add or remove the 'Little Access' role from a user.")
+    @app_commands.describe(
+        user="The user to add or remove the 'Little Access' role from."
+    )
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
+    async def little_access_command(self, interaction: discord.Interaction, user: discord.Member):
+        await interaction.response.defer(ephemeral=True)
+        
+        role_id_to_manage = 841398440897675265
+        little_access_role = interaction.guild.get_role(role_id_to_manage)
+        
+        if not little_access_role:
+            await interaction.followup.send("The 'Little Access' role could not be found. Please check the role ID.", ephemeral=True)
+            return
+
+        try:
+            if little_access_role in user.roles:
+                await user.remove_roles(little_access_role, reason="Role removed via littleaccess command.")
+                await interaction.followup.send(f"Successfully removed the 'Little Access' role from {user.mention}.", ephemeral=True)
+            else:
+                await user.add_roles(little_access_role, reason="Role added via littleaccess command.")
+                await interaction.followup.send(f"Successfully added the 'Little Access' role to {user.mention}.", ephemeral=True)
+        except discord.Forbidden:
+            await interaction.followup.send("I do not have permission to manage roles for this user.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"An unexpected error occurred: {e}", ephemeral=True)
 
     @app_commands.command(name="set_channel", description="Sets a specific channel ID dynamically.")
     @app_commands.describe(
@@ -247,13 +389,6 @@ class AdminTools(commands.Cog):
         if hours is None and not test_revive:
             await interaction.followup.send(f"Current chat revive interval is {utils.REVIVE_INTERVAL_HOURS} hours.", ephemeral=True)
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        self.periodic_revive.start()
-        self.daily_post_task.start()
-        self.check_timed_roles.start()
-        print("Scheduled tasks started.")
-
     async def _run_revive_logic(self, is_test: bool = False):
         channel_id = utils.CHAT_REVIVE_CHANNEL_ID
         if not channel_id:
@@ -266,7 +401,6 @@ class AdminTools(commands.Cog):
             return
         
         if not is_test:
-            # Get the last message in the channel to check for inactivity
             last_message_age = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=utils.REVIVE_INTERVAL_HOURS)
             last_message_found = False
             
@@ -299,83 +433,110 @@ class AdminTools(commands.Cog):
 
     @tasks.loop(minutes=30)
     async def periodic_revive(self):
-        # This task runs every 30 minutes and calls the main revive logic
-        # which checks the user-configured interval.
         await self._run_revive_logic(is_test=False)
         
-    @app_commands.command(name="add_update_global_timed_role", description="Adds or updates a global timed role with an expiration date.")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def add_update_global_timed_role(self, interaction: discord.Interaction, role: discord.Role, duration_days: Optional[int] = None, year: Optional[int] = None, month: Optional[int] = None, day: Optional[int] = None, hour: int = 0, minute: int = 0):
-        try:
-            if duration_days is not None:
-                if duration_days <= 0:
-                    await interaction.response.send_message("The duration must be a positive number of days.", ephemeral=True)
-                    return
-                expiration_date = datetime.datetime.now() + datetime.timedelta(days=duration_days)
-            elif year is not None and month is not None and day is not None:
-                expiration_date = datetime.datetime(year, month, day, hour, minute)
-            else:
-                await interaction.response.send_message("You must provide either a `duration_days` or a full date (`year`, `month`, and `day`).", ephemeral=True)
-                return
-
-            if expiration_date < datetime.datetime.now():
-                await interaction.response.send_message("The expiration date cannot be in the past.", ephemeral=True)
-                return
-
-            guild_id = interaction.guild_id
-            utils.save_timed_role_data(guild_id, role.id, expiration_date)
-            await interaction.response.send_message(f"Timed role {role.mention} has been set to expire on {expiration_date}.", ephemeral=True)
-
-        except ValueError as e:
-            await interaction.response.send_message(f"Invalid date/time provided: {e}. Please use valid numbers for year, month, day, hour, and minute.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"An unexpected error occurred: {e}", ephemeral=True)
-
     @tasks.loop(minutes=30)
     async def check_timed_roles(self):
         print("Checking for expired timed roles...")
         all_timed_roles = utils.load_timed_roles()
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now = datetime.datetime.now(datetime.timezone.utc)
         
-        roles_to_remove = {}  # {guild_id: {role_id: [member_id, ...]}}
+        # Define the day of week mapping locally since it might not be in utils
+        day_of_week_map = {
+            'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 
+            'Friday': 4, 'Saturday': 5, 'Sunday': 6
+        }
+        
+        guilds_to_update = {}
         
         for guild_id_str, roles_data in all_timed_roles.items():
             guild = self.bot.get_guild(int(guild_id_str))
             if not guild:
                 continue
-
-            for role_id_str, expiration_date_str in roles_data.items():
-                if expiration_date_str <= now:
-                    role = guild.get_role(int(role_id_str))
-                    if not role:
-                        continue
-                    
-                    for member in guild.members:
-                        if role in member.roles:
-                            if guild_id_str not in roles_to_remove:
-                                roles_to_remove[guild_id_str] = {}
-                            if role_id_str not in roles_to_remove[guild_id_str]:
-                                roles_to_remove[guild_id_str][role_id_str] = []
-                            roles_to_remove[guild_id_str][role_id_str].append(member)
-        
-        for guild_id_str, roles_data in roles_to_remove.items():
-            guild = self.bot.get_guild(int(guild_id_str))
-            if not guild:
-                continue
                 
-            for role_id_str, members in roles_data.items():
+            guilds_to_update[guild_id_str] = {}
+            
+            for role_id_str, role_info in roles_data.items():
+                is_repeatable = role_info.get('repeatable', False)
+                expiration_date_str = role_info.get('expiration_date')
+                day_of_week_name = role_info.get('day_of_week')
+                hours = role_info.get('hours')
+                last_action_time_str = role_info.get('last_action_time')
                 role = guild.get_role(int(role_id_str))
+                
                 if not role:
                     continue
+                
+                # Handling of non-repeatable roles
+                if not is_repeatable and expiration_date_str:
+                    expiration_date = datetime.datetime.fromisoformat(expiration_date_str)
+                    if now >= expiration_date:
+                        for member in role.members:
+                            try:
+                                await member.remove_roles(role, reason="Timed role expiration.")
+                                print(f"Removed expired role {role.name} from {member.display_name}.")
+                            except discord.Forbidden:
+                                print(f"Could not remove role {role.name} from {member.display_name}. Bot lacks permissions.")
+                        
+                        continue
+                    else:
+                        guilds_to_update[guild_id_str][role_id_str] = role_info
 
-                for member in members:
-                    try:
-                        await member.remove_roles(role, reason="Timed role expiration.")
-                        print(f"Removed expired role {role.name} from {member.display_name}.")
-                    except discord.Forbidden:
-                        print(f"Could not remove role {role.name} from {member.display_name}. Bot lacks permissions.")
-                    except Exception as e:
-                        print(f"An error occurred while removing role from {member.display_name}: {e}")
+                # Handling of weekly repeatable roles
+                elif is_repeatable and day_of_week_name and day_of_week_name != "daily":
+                    target_day_index = day_of_week_map.get(day_of_week_name)
+                    current_day_index = now.weekday()
+                    
+                    if current_day_index == target_day_index:
+                        # Add role to all members who don't have it
+                        for member in guild.members:
+                            if role not in member.roles:
+                                try:
+                                    await member.add_roles(role, reason=f"Weekly repeatable role on {day_of_week_name}.")
+                                    print(f"Added repeatable role {role.name} to {member.display_name}.")
+                                except discord.Forbidden:
+                                    print(f"Could not add repeatable role {role.name} to {member.display_name}. Bot lacks permissions.")
+                    else:
+                        # Remove role from all members who have it
+                        for member in role.members:
+                            try:
+                                await member.remove_roles(role, reason=f"Weekly repeatable role removed as {day_of_week_name} has passed.")
+                                print(f"Removed repeatable role {role.name} from {member.display_name}.")
+                            except discord.Forbidden:
+                                print(f"Could not remove repeatable role {role.name} from {member.display_name}. Bot lacks permissions.")
+                    
+                    guilds_to_update[guild_id_str][role_id_str] = role_info
+                    
+                # Handling of daily repeatable roles (UPDATED LOGIC)
+                elif is_repeatable and day_of_week_name == "daily" and hours:
+                    last_action_time = None
+                    if last_action_time_str:
+                        last_action_time = datetime.datetime.fromisoformat(last_action_time_str)
+                    
+                    time_since_last_action = now - last_action_time if last_action_time else datetime.timedelta(hours=hours + 1)
+                    
+                    if time_since_last_action >= datetime.timedelta(hours=hours):
+                        # Time has passed, remove the role from everyone and then re-add it
+                        for member in role.members:
+                            try:
+                                await member.remove_roles(role, reason="Daily timed role expiration.")
+                                print(f"Removed daily role {role.name} from {member.display_name}.")
+                            except discord.Forbidden:
+                                print(f"Could not remove role {role.name} from {member.display_name}. Bot lacks permissions.")
+                        
+                        for member in guild.members:
+                            if role not in member.roles:
+                                try:
+                                    await member.add_roles(role, reason=f"Daily repeatable role.")
+                                    print(f"Added daily role {role.name} to {member.display_name}.")
+                                except discord.Forbidden:
+                                    print(f"Could not add repeatable role {role.name} to {member.display_name}. Bot lacks permissions.")
+
+                        role_info['last_action_time'] = now.isoformat()
+                    
+                    guilds_to_update[guild_id_str][role_id_str] = role_info
+                    
+        utils.save_timed_roles_full_data(guilds_to_update)
 
     @tasks.loop(hours=24)
     async def daily_post_task(self):
@@ -438,7 +599,6 @@ class AdminTools(commands.Cog):
                 utils.update_user_money(user_id, 250)
                 utils.save_last_image_post_date(user_id, now)
                 
-                # Send a public message in the channel instead of a DM
                 await message.channel.send(f"{message.author.mention}, you have been credited with 250 coins for your image post! Please post any comments in <#{utils.DAILY_COMMENTS_CHANNEL_ID}>.", delete_after=10)
                 
     @app_commands.command(name="verify", description="[Staff Only] Verify a member and grant them the 'Verified Access' role.")
@@ -462,12 +622,11 @@ class AdminTools(commands.Cog):
             await member.add_roles(access_role_obj, id_verified_role_obj, reason="Manually verified by a staff member.")
             await member.remove_roles(visitor_role_obj, reason="Member has been verified.")
             
-            # New line added to respond in the verification ticket
             await interaction.followup.send("Thank you for verifying with us today.")
 
             if sinner_chat_channel:
                 try:
-                    embed_title = f"Welcome To The Sinners Side Of The Server ❧"
+                    embed_title = f"Welcome To The Sinners Side Of The Server ⧶"
                     embed_description = f"Go to <#{self_roles_channel_id}> then make yourself at home."
                     
                     embed = discord.Embed(
@@ -495,7 +654,7 @@ class AdminTools(commands.Cog):
     @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     @app_commands.describe(member="The member to cross-verify.")
     async def crossverify(self, interaction: discord.Interaction, member: discord.Member):
-        await interaction.response.defer() # removed ephemeral=True
+        await interaction.response.defer()
 
         if interaction.guild and interaction.guild.id != utils.MAIN_GUILD_ID:
             return await interaction.followup.send("This command is only available on the main server.", ephemeral=True)
@@ -512,7 +671,6 @@ class AdminTools(commands.Cog):
             return await interaction.followup.send("One or more required roles or channels could not be found. Please check role IDs and channel IDs in settings.", ephemeral=True)
 
         try:
-            # Corrected role assignment from id_verified to verified_access
             verified_access_role_obj = interaction.guild.get_role(utils.ROLE_IDS.get("verified_access"))
             if not verified_access_role_obj:
                  return await interaction.followup.send("The 'verified_access' role could not be found. Please check role IDs in settings.", ephemeral=True)
@@ -520,12 +678,11 @@ class AdminTools(commands.Cog):
             await member.add_roles(cross_verified_role_obj, id_cross_verified_role_obj, reason="Manually cross-verified by a staff member.")
             await member.remove_roles(visitor_role_obj, reason="Member has been cross-verified.")
 
-            # Removed ephemeral=True from the send_message call
             await interaction.followup.send("Thank you for verifying with us today.")
 
             if sinner_chat_channel:
                 try:
-                    embed_title = f"Welcome To The Sinners Side Of The Server ❧"
+                    embed_title = f"Welcome To The Sinners Side Of The Server ⧶"
                     embed_description = f"Go to <#{self_roles_channel_id}> then make yourself at home."
                     
                     embed = discord.Embed(
@@ -550,6 +707,62 @@ class AdminTools(commands.Cog):
             await interaction.followup.send("I do not have permission to assign or remove one of the roles. Please check my permissions.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"An error occurred while trying to assign/remove roles or send the message: {e}", ephemeral=True)
+
+    @app_commands.command(name="sendembed", description="[Staff Only] Creates and sends an embed message.")
+    @app_commands.describe(
+        channel="The channel where the embed should be sent.",
+        title="The title of the embed.",
+        description="The description text of the embed.",
+        mention="Optional mention to include with the final embed (e.g., @here, @role, @user).",
+        photo_url="URL for the main image of the embed.",
+        thumbnail_url="URL for the thumbnail image of the embed.",
+        footer_text="Text to be displayed in the footer of the embed."
+    )
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
+    async def send_embed_command(self, interaction: discord.Interaction, channel: discord.TextChannel, title: str, description: str, mention: Optional[str] = None, photo_url: Optional[str] = None, thumbnail_url: Optional[str] = None, footer_text: Optional[str] = None):
+        await interaction.response.defer(ephemeral=True)
+
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=discord.Color.blue()
+        )
+
+        if photo_url:
+            embed.set_image(url=photo_url)
+        if thumbnail_url:
+            embed.set_thumbnail(url=thumbnail_url)
+        if footer_text:
+            embed.set_footer(text=footer_text)
+            
+        mention_name = "No mention specified"
+        if mention:
+            mention_match = re.match(r'<a?:.+?:(\d+)>|<@!?(\d+)>|<@&(\d+)>|(@here|@everyone)', mention)
+            if mention_match:
+                if mention_match.group(2):
+                    user_id = int(mention_match.group(2))
+                    user_obj = self.bot.get_user(user_id)
+                    mention_name = user_obj.name if user_obj else "User not found"
+                elif mention_match.group(3):
+                    role_id = int(mention_match.group(3))
+                    role_obj = interaction.guild.get_role(role_id)
+                    mention_name = role_obj.name if role_obj else "Role not found"
+                elif mention_match.group(4):
+                    mention_name = mention_match.group(4)
+            else:
+                mention_name = mention
+
+        user_embed_data[interaction.user.id] = {
+            "embed": embed,
+            "channel_id": channel.id,
+            "mention_string": mention
+        }
+
+        view = EmbedConfirmView(user_id=interaction.user.id)
+        
+        preview_message = f"**Mention:** {mention_name}\n\nIs this how you like it?"
+        
+        await interaction.followup.send(content=preview_message, embed=embed, view=view, ephemeral=True)
 
 async def setup(bot):
     """The setup function to add this cog to the bot."""

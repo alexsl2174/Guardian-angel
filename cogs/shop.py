@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import app_commands, ui
 import os
 import math
 from typing import Dict, Any, List, Optional
@@ -23,6 +23,30 @@ class ShopCog(commands.Cog):
         self.bot = bot
         self.shop_items = utils.load_data(SHOP_ITEMS_FILE, [])
         self.items_per_page = 8
+
+    class QuantityModal(ui.Modal, title="Select Quantity"):
+        def __init__(self, item_to_buy: Dict[str, Any]):
+            super().__init__()
+            self.item_to_buy = item_to_buy
+            self.quantity_input = ui.TextInput(
+                label=f"How many {self.item_to_buy['name']} do you want to buy?",
+                placeholder="Enter a number (e.g., 1, 5, 10)...",
+                min_length=1,
+                max_length=4,
+            )
+            self.add_item(self.quantity_input)
+
+        async def on_submit(self, interaction: discord.Interaction):
+            try:
+                quantity = int(self.quantity_input.value)
+                if quantity <= 0:
+                    return await interaction.response.send_message("Please enter a valid quantity greater than zero.", ephemeral=True)
+            except ValueError:
+                return await interaction.response.send_message("Please enter a valid number.", ephemeral=True)
+            
+            await interaction.response.defer(ephemeral=True)
+
+            await utils.handle_buy_item(interaction, self.item_to_buy, quantity=quantity)
 
     class ShopView(discord.ui.View):
         def __init__(self, original_author_id: int, shop_items: list, items_per_page: int, cog):
@@ -47,11 +71,27 @@ class ShopCog(commands.Cog):
             options = []
             for item in items_to_display:
                 if 'id' in item:
-                    item_emoji = utils.get_item_emoji(item['name'], item.get("emoji"))
+                    item_name = item.get('name', 'Unknown Item')
+                    item_price = item.get('price', 0)
+                    
+                    item_emoji_string = item.get("emoji")
+                    item_emoji = None
+
+                    # Check if the emoji string is a custom Discord emoji before parsing
+                    if item_emoji_string and item_emoji_string.startswith('<'):
+                        try:
+                            item_emoji = discord.PartialEmoji.from_str(item_emoji_string)
+                        except:
+                            # If parsing fails, use the raw string as a fallback
+                            item_emoji = item_emoji_string
+                    else:
+                        item_emoji = item_emoji_string
+                    
                     options.append(
                         discord.SelectOption(
-                            label=f"{item_emoji} {item.get('name', 'Unknown Item')} - <a:starcoin:1280590254935380038> {item.get('price', 0)}",
-                            value=str(item['id'])
+                            label=f"{item_name.capitalize()} - 🪙 {item_price}",
+                            value=str(item['id']),
+                            emoji=item_emoji
                         )
                     )
             
@@ -114,9 +154,8 @@ class ShopCog(commands.Cog):
             if not item_to_buy:
                 return await interaction.response.send_message("This item is no longer available.", ephemeral=True)
 
-            await interaction.response.defer()
-            
-            await utils.handle_buy_item(interaction, item_to_buy, free_purchase=False)
+            modal = self.cog.QuantityModal(item_to_buy)
+            await interaction.response.send_modal(modal)
 
     @app_commands.command(name="shop", description="Displays the items available for purchase in the store.")
     async def shop_command(self, interaction: discord.Interaction):
@@ -137,7 +176,7 @@ class ShopCog(commands.Cog):
 
         embed = discord.Embed(
             title="The Sinners' Shop",
-            description="Use the dropdown menu to select and buy an item.",
+            description="Use the dropdown menu to select an item, then enter a quantity to buy.",
             color=discord.Color.gold()
         )
         

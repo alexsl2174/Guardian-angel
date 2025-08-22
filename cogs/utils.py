@@ -33,17 +33,22 @@ DATA_DIR = "data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
+
+
 # Directory for local assets
 ASSETS_DIR = "assets"
 if not os.path.exists(ASSETS_DIR):
     os.makedirs(ASSETS_DIR)
 
+
 # Local file paths for images
+CONFIG_FILE = 'timed_roles.json'
 HANGRY_GAMES_BACKGROUND_FILE = os.path.join(ASSETS_DIR, "hangry_games_background.png")
 CLASH_OVERLAY_FILE = os.path.join(ASSETS_DIR, "clash_overlay.png")
 SKULL_OVERLAY_FILE = os.path.join(ASSETS_DIR, "skull_overlay.png")
 WINNING_BG_FILE = os.path.join(ASSETS_DIR, "winning_bg.png")
 MEDAL_OVERLAY_FILE = os.path.join(ASSETS_DIR, "winner_overlay.png")
+SORRY_JAR_FILE = 'data/sorry_jar.json'
 
 # Other file paths for various bot features
 ADVENTURE_AI_RESTRICTIONS_FILE = os.path.join(DATA_DIR, 'adventure_ai_restrictions.txt')
@@ -75,6 +80,7 @@ DAILY_POSTS_FILE = os.path.join(DATA_DIR, 'daily_posts.json')
 BUG_COLLECTION_FILE = os.path.join(DATA_DIR, "bug_collection.json")
 PENDING_TRADES_FILE = os.path.join(DATA_DIR, "pending_trades.json")
 BOT_CONFIG_FILE = os.path.join(DATA_DIR, "bot_config.json")
+REWARDS_FILE = os.path.join(DATA_DIR, 'rewards.json')
 SHOP_ITEMS_FILE = os.path.join(DATA_DIR, "shop_items.json")
 USER_BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
 USER_INVENTORY_FILE = os.path.join(DATA_DIR, "user_inventory.json")
@@ -95,6 +101,39 @@ def save_daily_message_cooldowns(data: Dict[str, str]):
 
 def load_booster_rewards() -> Dict[str, str]:
     return load_data(BOOSTER_REWARDS_FILE, {})
+
+
+# Add these functions to your cogs/utils.py file
+def load_rewards():
+    """Loads rewards data from the JSON file."""
+    return load_data(REWARDS_FILE, {'cooldowns': {}, 'rewards': {}})
+
+def save_rewards(data):
+    """Saves rewards data to the JSON file."""
+    save_data(data, REWARDS_FILE)
+
+def load_sorry_jar_data():
+    """Loads the sorry jar data from a JSON file."""
+    try:
+        if not os.path.exists('data'):
+            os.makedirs('data')
+        with open(SORRY_JAR_FILE, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        print(f"Error decoding JSON from {SORRY_JAR_FILE}. Returning an empty dictionary.")
+        return {}
+
+def save_sorry_jar_data(data):
+    """Saves the sorry jar data to a JSON file."""
+    try:
+        if not os.path.exists('data'):
+            os.makedirs('data')
+        with open(SORRY_JAR_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    except IOError as e:
+        print(f"Error saving sorry jar data: {e}")
 
 def save_booster_rewards(data: Dict[str, str]):
     save_data(data, BOOSTER_REWARDS_FILE)
@@ -635,13 +674,58 @@ def load_chat_revive_channel() -> Optional[int]:
 def save_chat_revive_channel(channel_id: int):
     update_dynamic_config("CHAT_REVIVE_CHANNEL_ID", channel_id)
 
-def save_timed_role_data(guild_id: int, role_id: int, expiration_date: datetime.datetime):
-    data = load_data(TIMED_ROLES_FILE, {})
+def load_timed_roles():
+    """Loads all timed roles from the JSON file."""
+    if not os.path.exists("data"):
+        os.makedirs("data")
+    if not os.path.exists(TIMED_ROLES_FILE):
+        return {}
+    with open(TIMED_ROLES_FILE, 'r') as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return {}
+
+def save_timed_role_data(guild_id, role_id, expiration_date=None, repeatable=False, day_of_week=None, hours=None):
+    """
+    Saves a timed role's information to a JSON file.
+    Args:
+        guild_id (int): The ID of the guild.
+        role_id (int): The ID of the role.
+        expiration_date (str): The ISO formatted expiration date.
+        repeatable (bool): Whether the role is repeatable.
+        day_of_week (str): The day of the week for repeatable roles (e.g., 'Monday', 'daily').
+        hours (int): The duration in hours for daily repeatable roles.
+    """
+    all_timed_roles = load_timed_roles()
     guild_id_str = str(guild_id)
-    if guild_id_str not in data:
-        data[guild_id_str] = {}
-    data[guild_id_str][str(role_id)] = expiration_date.isoformat()
-    save_data(data, TIMED_ROLES_FILE)
+    role_id_str = str(role_id)
+
+    if guild_id_str not in all_timed_roles:
+        all_timed_roles[guild_id_str] = {}
+
+    all_timed_roles[guild_id_str][role_id_str] = {
+        "expiration_date": expiration_date,
+        "repeatable": repeatable,
+        "day_of_week": day_of_week,
+        "hours": hours
+    }
+    
+    # Initialize last_action_time for new daily repeatable roles
+    if repeatable and day_of_week == "daily":
+        all_timed_roles[guild_id_str][role_id_str]["last_action_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+    with open(TIMED_ROLES_FILE, "w") as f:
+        json.dump(all_timed_roles, f, indent=4)
+
+
+def save_timed_roles_full_data(data):
+    """Saves the entire timed roles dictionary to the JSON file."""
+    if not os.path.exists("data"):
+        os.makedirs("data")
+    with open(TIMED_ROLES_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
 def load_last_image_post_date(user_id: int) -> Optional[datetime.datetime]:
     data = load_data(LAST_IMAGE_POST_FILE, {})
@@ -733,40 +817,82 @@ async def generate_hangry_event(tributes: List[discord.Member], event_type: str)
         print("Gemini API key is not set. Skipping AI generation.")
         return None
     
+    genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(DEFAULT_TRANSLATION_MODEL_NAME)
     
     if event_type == "duel" and len(tributes) == 2:
         prompt = (
-            f"Generate a very short, high-energy Hangry Games duel event in JSON format. "
+            f"Generate a short, high-energy Hangry Games duel event in strict JSON format. "
             f"Tributes: {tributes[0].display_name} vs. {tributes[1].display_name}. "
-            "Focus on a unique, action-packed food-themed attack. "
-            "JSON keys: `title`, `description` (one sentence with placeholders), `winner`, `loser`."
+            "The duel must be ridiculous and food-themed, with wild, imaginative, and funny combat using cooking, eating, or weaponized food. "
+            "The event should read like a mini-scene (2–3 sentences) with action and maybe a quick reaction or consequence. "
+            "Avoid repeating any previously used foods, weapons, or scenarios—each duel must use new foods or a fresh twist. "
+            "Rotate between different food categories (fruits, vegetables, baked goods, drinks, condiments, meats, dairy, desserts, etc.) to keep variety. "
+            "JSON keys required: `title` (funny food-fight style headline), "
+            "`description` (2–3 sentences using placeholders {winner} and {loser}), "
+            "`winner` (tribute name), and `loser` (tribute name). "
+            "Keep it energetic, surprising, and playful, but always food-focused."
         )
+
     elif event_type == "solo_death" and len(tributes) == 1:
         prompt = (
-            f"Generate a very short, humorous, and ironic Hangry Games solo death event in JSON format. "
+            f"Generate a short, humorous, and ironic Hangry Games solo death event in strict JSON format. "
             f"Tribute: {tributes[0].display_name}. "
-            "The death must be a clumsy food-related accident. "
-            f"**Crucially, the 'tribute' key must contain the exact name: '{tributes[0].display_name}'**. "
-            "JSON keys: `title`, `description` (one sentence with a placeholder), `tribute`."
+            "The death must be a ridiculous, clumsy, food-related accident—something unexpected, cartoonish, and over-the-top. "
+            "The event should read like a mini-scene (2–3 sentences) with a bit of setup, the accident, and an ironic aftermath. "
+            "Do NOT reuse the same food item, weapon, or scenario as in previous events—make each one unique. "
+            "JSON keys required: `title` (funny food-fight style headline), "
+            "`description` (2–3 sentences using placeholder {tribute}), "
+            "`tribute` (tribute name)."
+            "Keep it playful and exaggerated, never dark or gory."
         )
+
     else:
         return None
     
-    try:
-        response = await asyncio.wait_for(
-            model.generate_content_async(prompt),
-            timeout=AI_GENERATION_TIMEOUT
-        )
-        response_text = response.text.strip()
-        if response_text.startswith("```json"):
-            response_text = response_text[len("```json"):].strip()
-        if response_text.endswith("```"):
-            response_text = response_text[:-len("```")].strip()
-        return json.loads(response_text)
-    except (asyncio.TimeoutError, json.JSONDecodeError, Exception) as e:
-        print(f"Error generating hangry event: {e}")
-        return None
+    # Retry loop for AI generation
+    retries = 3
+    while retries > 0:
+        try:
+            response = await asyncio.wait_for(
+                model.generate_content_async(prompt),
+                timeout=AI_GENERATION_TIMEOUT
+            )
+            response_text = response.text.strip()
+            if response_text.startswith("```json"):
+                response_text = response_text[len("```json"):].strip()
+            if response_text.endswith("```"):
+                response_text = response_text[:-len("```")].strip()
+            
+            event = json.loads(response_text)
+            
+            # Normalize keys to lowercase for consistent access
+            normalized_event = {k.lower(): v for k, v in event.items()}
+            
+            # Validate the normalized keys based on the event type
+            if event_type == "duel":
+                required_keys = ['title', 'description', 'winner', 'loser']
+            elif event_type == "solo_death":
+                required_keys = ['title', 'description', 'tribute']
+            else:
+                return None
+            
+            if all(key in normalized_event for key in required_keys):
+                return normalized_event
+            else:
+                print(f"AI response missing required keys. Retrying... {event}")
+                retries -= 1
+                await asyncio.sleep(1) # Wait a second before retrying
+                continue
+
+        except (asyncio.TimeoutError, json.JSONDecodeError, Exception) as e:
+            print(f"Error generating hangry event. Retrying...: {e}")
+            retries -= 1
+            await asyncio.sleep(1)
+            continue
+            
+    print("Failed to generate a valid event after multiple retries.")
+    return None
 
 def load_items() -> List[Dict[str, Any]]:
     return load_data(SHOP_ITEMS_FILE, [])
@@ -787,91 +913,90 @@ def save_user_inventory(user_id: int, user_inventory: Dict[str, Any]):
     inventory_data[str(user_id)] = user_inventory
     save_data(inventory_data, USER_INVENTORY_FILE)
 
-def add_item_to_inventory(user_id: int, item_name: str, item_data: Dict[str, Any]):
+def add_item_to_inventory(user_id: int, item_name: str, item_data: Optional[Dict[str, Any]] = None, count: int = 1):
+    """Adds a generic item to a user's inventory, handling stacks and nets."""
     user_inventory_data = load_data(USER_INVENTORY_FILE, {})
-    user_data = user_inventory_data.get(str(user_id), {"items": {}, "nets": None, "net_durability": 0, "xp": 0})
-    
-    if item_data.get("type") == 'net':
-        user_data['nets'] = {"name": item_data['name'], "durability": item_data['durability']}
+    user_data = user_inventory_data.get(str(user_id), {"items": {}, "nets": [], "net_durability": 0, "xp": 0})
+
+    if item_data and item_data.get('type') == 'net':
+        # Add a new net entry
+        new_net = {
+            "name": item_name,
+            "durability": item_data.get("durability", 0)
+        }
+        user_data["nets"].append(new_net)
     else:
+        # Handle regular items with a counter
+        user_items = user_data.get("items", {})
         item_name_lower = item_name.lower()
-        user_data['items'][item_name_lower] = user_data['items'].get(item_name_lower, 0) + 1
+        user_items[item_name_lower] = user_items.get(item_name_lower, 0) + count
+        user_data["items"] = user_items
 
     user_inventory_data[str(user_id)] = user_data
     save_data(user_inventory_data, USER_INVENTORY_FILE)
 
-def remove_item_from_inventory(user_id: int, item_name: str):
-    inventory_data = load_data(USER_INVENTORY_FILE, {})
-    user_id_str = str(user_id)
-    user_data = inventory_data.get(user_id_str, {"items": {}})
-    
+def remove_item_from_inventory(user_id: int, item_name: str, count: int = 1):
+    """Removes a specified number of items from a user's inventory."""
+    user_inventory_data = load_data(USER_INVENTORY_FILE, {})
+    user_data = user_inventory_data.get(str(user_id), {"items": {}, "nets": [], "net_durability": 0, "xp": 0})
+    user_items = user_data.get("items", {})
     item_name_lower = item_name.lower()
-    if user_data['items'].get(item_name_lower, 0) > 1:
-        user_data['items'][item_name_lower] -= 1
-    elif item_name_lower in user_data['items']:
-        del user_data['items'][item_name_lower]
-        
-    inventory_data[user_id_str] = user_data
-    save_data(inventory_data, USER_INVENTORY_FILE)
-    
-async def handle_buy_item(interaction: discord.Interaction, item_to_buy: Dict[str, Any], free_purchase: bool):
-    user_id = interaction.user.id
-    user_id_str = str(user_id)
-    
-    inventory_data = load_data(USER_INVENTORY_FILE, {})
-    
-    if user_id_str not in inventory_data:
-        inventory_data[user_id_str] = {"items": {}, "nets": [], "net_durability": 0, "xp": 0, "equipped_net": None}
-    
-    user_data = inventory_data[user_id_str]
 
-    required_item = item_to_buy.get("requirement")
-    if required_item:
-        if required_item.lower() not in user_data.get("items", {}):
-            return await interaction.followup.send(f"You must have `{required_item}` in your inventory to purchase this item.", ephemeral=True)
+    if user_items.get(item_name_lower, 0) > count:
+        user_items[item_name_lower] -= count
+    else:
+        # If the count is greater than or equal to the total, remove the item completely.
+        if item_name_lower in user_items:
+            del user_items[item_name_lower]
+
+    user_data["items"] = user_items
+    user_inventory_data[str(user_id)] = user_data
+    save_data(user_inventory_data, USER_INVENTORY_FILE)
     
-    item_price = item_to_buy.get('price', 0)
+async def handle_buy_item(interaction: discord.Interaction, item_to_buy: Dict[str, Any], quantity: int = 1, free_purchase: bool = False):
+    user_id = str(interaction.user.id)
+
+    # Get user money using the dedicated function
+    user_money = get_user_money(interaction.user.id)
+    
+    # Load user inventory from the correct file (user_inventory.json)
+    user_inventory_data = load_data(USER_INVENTORY_FILE, {})
+    user_items = user_inventory_data.get(user_id, {}).get('items', {})
+    
+    total_price = item_to_buy.get('price', 0) * quantity
+
+    # --- Start Debugging Code ---
+    print(f"--- Debugging handle_buy_item ---")
+    print(f"User ID: {user_id}")
+    print(f"User Money: {user_money}")
+    print(f"Item Price: {item_to_buy.get('price', 0)}")
+    print(f"Quantity: {quantity}")
+    print(f"Calculated Total Price: {total_price}")
+    print(f"---------------------------------")
+    # --- End Debugging Code ---
 
     if not free_purchase:
-        user_balance = get_user_money(user_id)
-        if user_balance < item_price:
-            return await interaction.followup.send(f"You don't have enough money to buy `{item_to_buy['name']}`. You need <a:starcoin:1280590254935380038> {item_price - user_balance} more.", ephemeral=True)
-        update_user_money(user_id, -item_price)
-    
-    if item_to_buy.get("type") == 'net':
-        if 'nets' not in user_data:
-            user_data['nets'] = []
-        
-        new_net = {"name": item_to_buy['name'], "durability": item_to_buy.get('durability', 0)}
-        user_data['nets'].append(new_net)
+        if user_money < total_price:
+            return await interaction.followup.send("You don't have enough coins to purchase this item.", ephemeral=True)
 
-        if not user_data.get('equipped_net'):
-            user_data['equipped_net'] = item_to_buy['name']
-            message_text = f"✅ You have successfully purchased and equipped the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}!"
-        else:
-            message_text = f"✅ You have successfully purchased the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}! It has been added to your inventory."
+        if item_to_buy.get('requirement'):
+            required_item = item_to_buy['requirement'].lower()
+            if user_items.get(required_item, 0) == 0:
+                return await interaction.followup.send(f"You need to own the '{required_item}' item to buy this.", ephemeral=True)
+    
+    # Update user's money
+    if not free_purchase:
+        update_user_money(interaction.user.id, -total_price)
+    
+    # Add item to inventory based on type
+    if item_to_buy.get('type') == 'net':
+        for _ in range(quantity):
+            add_item_to_inventory(interaction.user.id, item_to_buy.get('name'), item_data=item_to_buy)
     else:
-        item_name = item_to_buy['name']
-        item_name_lower = item_name.lower()
-        if 'items' not in user_data:
-            user_data['items'] = {}
-        user_data['items'][item_name_lower] = user_data['items'].get(item_name_lower, 0) + 1
-
-        if item_to_buy.get("type") == "cosmetic":
-            role = discord.utils.get(interaction.guild.roles, name=item_to_buy.get("role_to_give"))
-            if role:
-                member = interaction.guild.get_member(user_id)
-                if member:
-                    await member.add_roles(role)
+        # This function call now uses the corrected argument name
+        add_item_to_inventory(interaction.user.id, item_to_buy.get('name'), count=quantity)
         
-        message_text = f"✅ You have successfully purchased the **{item_to_buy['name']}** for <a:starcoin:1280590254935380038> {item_price}!"
-
-    if free_purchase:
-        message_text = f"✅ (TEST) You have successfully purchased the **{item_to_buy['name']}** for free!"
-
-    save_data(inventory_data, USER_INVENTORY_FILE)
-    
-    await interaction.followup.send(message_text, ephemeral=True)
+    await interaction.followup.send(f"Successfully purchased {quantity} '{item_to_buy.get('name')}' for {total_price} coins!", ephemeral=True)
 
 def load_swear_jar_data():
     return load_data(SWEAR_JAR_FILE, {'words': [], 'tally': {}})
@@ -886,17 +1011,6 @@ def get_item_emoji(item_name: str, emoji_str: str) -> str:
 
 def save_swear_jar_data(data: Dict[str, Any]):
     save_data(data, SWEAR_JAR_FILE)
-    
-def save_timed_role_data(guild_id: int, role_id: int, expiration_date: datetime.datetime):
-    data = load_data(TIMED_ROLES_FILE, {})
-    guild_id_str = str(guild_id)
-    if guild_id_str not in data:
-        data[guild_id_str] = {}
-    data[guild_id_str][str(role_id)] = expiration_date.isoformat()
-    save_data(data, TIMED_ROLES_FILE)
-
-def load_timed_roles() -> Dict[str, Dict[str, str]]:
-    return load_data(TIMED_ROLES_FILE, {})
 
 def load_anagram_game_state():
     return load_data(ANAGRAM_GAME_STATE_FILE, {"channel_id": ANAGRAM_CHANNEL_ID, "current_word": None, "shuffled_word": None})
@@ -924,6 +1038,10 @@ def load_tree_of_life_state(guild_id: int):
         "last_watered_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "rank": 0
     })
+
+def now():
+    """Returns the current UTC time."""
+    return datetime.datetime.now(datetime.timezone.utc)
 
 def save_tree_of_life_state(guild_id: int, state: Dict[str, Any]):
     game_data = load_tree_game_data()
@@ -1084,7 +1202,7 @@ async def generate_anagram_word_with_gemini() -> Optional[str]:
         return None
     try:
         model = genai.GenerativeModel(DEFAULT_TRANSLATION_MODEL_NAME)
-        prompt = "Generate a single, common, English word between 5 and 10 letters long. Do not include any punctuation or extra text."
+        prompt = "Generate a single, common English word between 5 and 10 letters long. The word should be different from any previously generated word. Choose a word at random so the result varies each time. Do not include punctuation, numbers, or extra text—only output the word."
         response = await asyncio.wait_for(
             model.generate_content_async(prompt),
             timeout=AI_GENERATION_TIMEOUT
@@ -1163,6 +1281,13 @@ def get_item_emoji(item_name: str, emoji_str: str) -> str:
     if emoji_str and not emoji_str.startswith('<'):
         return emoji_str
     return emoji_str or "🛒"
+
+async def day_of_week_autocomplete(interaction: discord.Interaction, current: str):
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    return [
+        app_commands.Choice(name=day, value=day)
+        for day in days if current.lower() in day.lower()
+    ]
 
 async def generate_duel_image(winner_avatar_url: str, loser_avatar_url: str) -> discord.File:
     """Generates a duel image by combining two user avatars with a duel overlay."""

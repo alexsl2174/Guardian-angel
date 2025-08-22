@@ -6,6 +6,19 @@ import math
 BUG_COLLECTION_FILE = os.path.join("data", "bug_collection.json")
 SHOP_ITEMS_FILE = os.path.join("data", "shop_items.json")
 
+# A representation of your shop_items.json file, assuming it's a list of dictionaries.
+# The `type` key is for distinguishing between items.
+# The `value` is the sell price, and `cost` is the purchase price.
+SHOP_ITEMS = [
+    {"name": "Basic Net", "cost": 100, "type": "net", "durability": 10},
+    {"name": "Regular Net", "cost": 250, "type": "net", "durability": 25},
+    {"name": "Strong Net", "cost": 500, "type": "net", "durability": 50},
+    {"name": "beehive", "cost": 1000, "type": "beehive"},
+    {"name": "bees", "cost": 50, "type": "bees"},
+    {"name": "honey", "value": 200, "type": "honey"}
+]
+
+
 # Insect list with stats, emojis, and shiny chance
 INSECT_LIST = [
     {"name": "Hercules Beetle", "xp": 80, "emoji": "🪲", "image_url": "https://media.discordapp.net/attachments/1157737246162681876/1266205737525330030/1715767252273.webp", "shiny_chance": 1},

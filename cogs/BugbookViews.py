@@ -8,7 +8,7 @@ from cogs.BugData import load_bug_collection, save_bug_collection, INSECT_LIST
 
 class BugbookListView(discord.ui.View):
     def __init__(self, target_user: discord.Member, unique_bugs, total_unique_bugs, bugs_per_page, total_pages, cog):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
         self.target_user = target_user
         self.unique_bugs = unique_bugs
         self.total_unique_bugs = total_unique_bugs
@@ -94,7 +94,7 @@ class BugbookListView(discord.ui.View):
 
 class TradeConfirmationView(discord.ui.View):
     def __init__(self, bot, proposer: discord.Member, target: discord.Member, proposer_bug: str, target_bug: str):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
         self.bot = bot
         self.proposer = proposer
         self.target = target

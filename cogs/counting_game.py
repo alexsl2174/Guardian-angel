@@ -11,8 +11,9 @@ from typing import Optional
 class CountingGame(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # Load the initial state from the saved file
         counting_state = utils.load_counting_game_state()
-        self.bot.counting_channel_id = utils.COUNTING_CHANNEL_ID
+        self.bot.counting_channel_id = counting_state.get('counting_channel_id')
         self.bot.current_count = counting_state.get('current_count', 0)
         self.bot.last_counter_id = counting_state.get('last_counter_id')
         self.bot.guess_game_active = counting_state.get('guess_game_active', False)
@@ -24,49 +25,15 @@ class CountingGame(commands.Cog):
         self.main_guild_id = utils.MAIN_GUILD_ID
 
     async def setup_game_state(self):
-        if self.bot.counting_channel_id:
-            channel = self.bot.get_channel(self.bot.counting_channel_id)
-            if channel:
-                last_count = 0
-                last_counter_id = None
-                try:
-                    async for message in channel.history(limit=50, oldest_first=False):
-                        if message.author == self.bot.user:
-                            continue
-                        
-                        try:
-                            msg_number = int(message.content)
-                            if msg_number == last_count + 1:
-                                last_count = msg_number
-                                last_counter_id = message.author.id
-                            else:
-                                # Found a break in the chain, stop looking
-                                break
-                        except ValueError:
-                            # Non-number message, continue looking
-                            continue
-                except discord.errors.Forbidden:
-                    print(f"I don't have permission to read message history in channel {channel.name}.")
-                
-                self.bot.current_count = last_count
-                self.bot.last_counter_id = last_counter_id
-                utils.save_counting_game_state(
-                    {
-                        "counting_channel_id": self.bot.counting_channel_id,
-                        "current_count": self.bot.current_count,
-                        "last_counter_id": self.bot.last_counter_id,
-                        "guess_game_active": self.bot.guess_game_active,
-                        "guess_game_number": self.bot.guess_game_number,
-                        "guess_attempts": self.bot.guess_attempts,
-                        "lucky_number": self.bot.lucky_number,
-                        "lucky_number_active": self.bot.lucky_number_active
-                    }
-                )
-                print(f"Synchronized counting game state with channel history. Current count is now {self.bot.current_count}.")
-
+        # The state is already loaded in __init__
+        # This function can now be used for any additional setup,
+        # but the primary state is already in memory.
+        pass
 
     @commands.Cog.listener()
     async def on_ready(self):
+        # Since the state is loaded in __init__, we don't need to do a full resync here,
+        # but we can call it to ensure the state is fully ready.
         await self.setup_game_state()
 
 
@@ -119,16 +86,17 @@ class CountingGame(commands.Cog):
                 await message.add_reaction('🍀')
                 return
 
-            next_count = self.bot.current_count + 1 if mode == 'incremental' else self.bot.current_count - 1
-
             if self.bot.guess_game_active:
                 if msg_number == self.bot.guess_game_number:
                     utils.update_user_money(message.author.id, 50)
-                    await message.channel.send(f"🎉 **Congratulations {message.author.mention}!** You guessed **{self.bot.guess_game_number}** and won **50 coins**! Let's continue counting from **{next_count}**!")
+                    next_count_after_guess = self.bot.current_count + 1 if mode == 'incremental' else self.bot.current_count - 1
+                    
+                    await message.channel.send(f"🎉 **Congratulations {message.author.mention}!** You guessed **{self.bot.guess_game_number}** and won **50 coins**! Let's continue counting from **{next_count_after_guess}**!")
                     
                     self.bot.guess_game_active = False
-                    self.bot.current_count = self.bot.guess_game_number
-                    self.bot.last_counter_id = message.author.id
+                    # The count does not advance here; the next count should be the sequential one.
+                    # self.bot.current_count remains the same
+                    # self.bot.last_counter_id remains the same as the last person who counted
                     self.bot.guess_game_number = 0
                     self.bot.guess_attempts = 0
                     self.bot.lucky_number = 0
@@ -187,6 +155,8 @@ class CountingGame(commands.Cog):
                             }
                         )
                 return
+
+            next_count = self.bot.current_count + 1 if mode == 'incremental' else self.bot.current_count - 1
 
             if not consecutive_counting_enabled and message.author.id == self.bot.last_counter_id:
                 try:
@@ -385,5 +355,4 @@ class CountingGame(commands.Cog):
 
 async def setup(bot):
     cog = CountingGame(bot)
-    await cog.setup_game_state()
     await bot.add_cog(cog)

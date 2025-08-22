@@ -1,3 +1,4 @@
+# item.py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -7,14 +8,16 @@ from typing import List, Dict, Any, Union, Optional
 import re
 import textwrap
 from collections import Counter
-
-# Import shared utility functions and global configurations
+import random
 import cogs.utils as utils 
+from cogs.BugData import INSECT_LIST, SHINY_INSECT_LIST, load_bug_collection, save_bug_collection
 
 # --- Define the local assets directory ---
 ASSETS_DIR = "assets"
 # Define the shop items file for administrative commands
 SHOP_ITEMS_FILE = os.path.join("data", "shop_items.json")
+# Define bug data
+BUG_COLLECTION_FILE = os.path.join("data", "bug_collection.json")
 
 # --- Autocomplete function for item names ---
 async def item_autocomplete(interaction: discord.Interaction, current: str):
@@ -28,7 +31,6 @@ async def item_autocomplete(interaction: discord.Interaction, current: str):
 
 # --- UI Views for Item Commands (Now only used for item group commands) ---
 
-# Dropdown for selecting an item from the user's inventory for actions like use/sell
 class InventorySelect(discord.ui.Select):
     def __init__(self, items: List[Dict[str, Any]], action: str):
         options = [
@@ -42,6 +44,30 @@ class InventorySelect(discord.ui.Select):
         item_name = self.values[0]
         if self.action == "use":
             item_data = utils.get_item_data(item_name)
+            
+            # Check for "Fish" item usage
+            if item_name.lower() == "fish":
+                user_inventory = utils.load_user_inventory(interaction.user.id)
+                if user_inventory.get('items', {}).get("fish", 0) > 0:
+                    utils.remove_item_from_inventory(interaction.user.id, "fish")
+                    
+                    if random.random() < 0.2: # 20% chance to catch a cat
+                        cat_bug_info = next((bug for bug in INSECT_LIST if bug['name'] == "Purrfect Cat"), None)
+                        if cat_bug_info:
+                            bug_collection = utils.load_data(BUG_COLLECTION_FILE, {})
+                            user_id_str = str(interaction.user.id)
+                            user_data = bug_collection.get(user_id_str, {"caught": [], "xp": 0, "shinies_caught": []})
+
+                            user_data['caught'].append(cat_bug_info['name'])
+                            user_data['xp'] = user_data.get('xp', 0) + cat_bug_info['xp']
+                            bug_collection[user_id_str] = user_data
+                            utils.save_data(bug_collection, BUG_COLLECTION_FILE)
+                            
+                            return await interaction.response.send_message(f"🐟 You used a fish and caught a **Purrfect Cat**! It has been added to your bug book.", ephemeral=True)
+                    
+                    return await interaction.response.send_message("You used a fish, but nothing happened. 😢", ephemeral=True)
+            
+            # Existing use logic for other items
             if not item_data or not item_data.get('role_to_give'):
                 return await interaction.response.send_message(f"You cannot use '{item_name}'.", ephemeral=True)
             
@@ -53,7 +79,14 @@ class InventorySelect(discord.ui.Select):
             if role and interaction.guild.me.top_role > role:
                 try:
                     await interaction.user.add_roles(role, reason=f"Used item '{item_name}'")
-                    utils.remove_item_from_inventory(interaction.user.id, item_name)
+                    
+                    user_items = user_inventory['items']
+                    if user_items.get(item_name.lower(), 0) > 1:
+                        user_items[item_name.lower()] -= 1
+                    else:
+                        del user_items[item_name.lower()]
+                    utils.save_user_inventory(interaction.user.id, user_inventory)
+
                     await interaction.response.send_message(f"You used '{item_name}' and were granted the '{role.name}' role!", ephemeral=True)
                 except discord.Forbidden:
                     await interaction.response.send_message("I don't have permissions to grant that role.", ephemeral=True)
@@ -116,35 +149,62 @@ class ItemGroup(app_commands.Group):
     
     @app_commands.command(name="use", description="Use an item from your inventory.")
     @app_commands.autocomplete(item_name=item_autocomplete)
-    @app_commands.describe(item_name="The name of the item you want to use.")
-    async def item_use(self, interaction: discord.Interaction, item_name: str):
+    @app_commands.describe(item_name="The name of the item you want to use.", quantity="The number of items to use.")
+    async def item_use(self, interaction: discord.Interaction, item_name: str, quantity: Optional[int] = 1):
         if interaction.guild and interaction.guild.id != self.main_guild_id:
             return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
         
         user_id = str(interaction.user.id)
         inventory_data = utils.load_user_inventory(user_id)
 
-        if not inventory_data.get('items', {}).get(item_name.lower()):
-            return await interaction.response.send_message(f"You don't have '{item_name}' to use.", ephemeral=True)
+        if quantity <= 0:
+            return await interaction.response.send_message("Quantity must be a positive number.", ephemeral=True)
+
+        current_item_count = inventory_data.get('items', {}).get(item_name.lower(), 0)
+        if current_item_count < quantity:
+            return await interaction.response.send_message(f"You only have {current_item_count} of '{item_name}' to use.", ephemeral=True)
 
         item_data = utils.get_item_data(item_name)
+        
+        # New logic for "Fish" item
+        if item_name.lower() == "fish":
+            total_cats_caught = 0
+            for _ in range(quantity):
+                if random.random() < 0.2: # 20% chance to catch a cat
+                    cat_bug_info = next((bug for bug in INSECT_LIST if bug['name'] == "Purrfect Cat"), None)
+                    if cat_bug_info:
+                        bug_collection = utils.load_data(BUG_COLLECTION_FILE, {})
+                        user_data = bug_collection.get(user_id, {"caught": [], "xp": 0, "shinies_caught": []})
+                        user_data['caught'].append(cat_bug_info['name'])
+                        user_data['xp'] = user_data.get('xp', 0) + cat_bug_info['xp']
+                        bug_collection[user_id] = user_data
+                        utils.save_data(bug_collection, BUG_COLLECTION_FILE)
+                        total_cats_caught += 1
+            
+            # Remove items
+            utils.remove_item_from_inventory(interaction.user.id, "fish", quantity)
+            
+            message = f"You used {quantity} fish. 😢"
+            if total_cats_caught > 0:
+                message = f"🐟 You used {quantity} fish and caught {total_cats_caught} **Purrfect Cat(s)**! They have been added to your bug book."
+            return await interaction.response.send_message(message, ephemeral=True)
+
         if not item_data or not item_data.get('role_to_give'):
             return await interaction.response.send_message(f"You cannot use '{item_name}'.", ephemeral=True)
 
+        # Handle other item usage
         role_name = item_data['role_to_give']
         role = discord.utils.get(interaction.guild.roles, name=role_name)
         
         if role and interaction.guild.me.top_role > role:
             try:
-                await interaction.user.add_roles(role, reason=f"Used item '{item_name}'")
-                
-                user_items = inventory_data['items']
-                if user_items.get(item_name.lower(), 0) > 1:
-                    user_items[item_name.lower()] -= 1
-                else:
-                    del user_items[item_name.lower()]
-                utils.save_user_inventory(user_id, inventory_data)
+                # Assuming you can only use one of these items at a time
+                if quantity > 1:
+                    await interaction.response.send_message("You can only use one of this type of item at a time.", ephemeral=True)
+                    quantity = 1 # Revert to one for items that give roles
 
+                await interaction.user.add_roles(role, reason=f"Used item '{item_name}'")
+                utils.remove_item_from_inventory(user_id, item_name, quantity)
                 await interaction.response.send_message(f"You used '{item_name}' and were granted the '{role.name}' role!", ephemeral=True)
             except discord.Forbidden:
                 await interaction.response.send_message("I don't have permissions to grant that role.", ephemeral=True)
@@ -153,33 +213,58 @@ class ItemGroup(app_commands.Group):
 
     @app_commands.command(name="sell", description="Sell an item from your inventory for half its price.")
     @app_commands.autocomplete(item_name=item_autocomplete)
-    @app_commands.describe(item_name="The name of the item you want to sell.")
-    async def item_sell(self, interaction: discord.Interaction, item_name: str):
+    @app_commands.describe(item_name="The name of the item you want to sell.", quantity="The number of items to sell.")
+    async def item_sell(self, interaction: discord.Interaction, item_name: str, quantity: Optional[int] = 1):
         if interaction.guild and interaction.guild.id != self.main_guild_id:
             return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
 
         user_id = str(interaction.user.id)
         inventory_data = utils.load_user_inventory(user_id)
         
-        if not inventory_data.get('items', {}).get(item_name.lower()):
-            return await interaction.response.send_message("You don't have that item in your inventory.", ephemeral=True)
+        if quantity <= 0:
+            return await interaction.response.send_message("Quantity must be a positive number.", ephemeral=True)
+            
+        current_item_count = inventory_data.get('items', {}).get(item_name.lower(), 0)
+        if current_item_count < quantity:
+            return await interaction.response.send_message(f"You only have {current_item_count} of that item in your inventory.", ephemeral=True)
 
         item_data = utils.get_item_data(item_name)
         if not item_data:
             return await interaction.response.send_message(f"Item '{item_name}' not found.", ephemeral=True)
         
-        sell_price = int(item_data['price'] * 0.5)
+        sell_price_per_item = item_data['price']
+        total_sell_price = sell_price_per_item * quantity
 
-        user_items = inventory_data['items']
-        if user_items.get(item_name.lower(), 0) > 1:
-            user_items[item_name.lower()] -= 1
-        else:
-            del user_items[item_name.lower()]
+        utils.remove_item_from_inventory(user_id, item_name, quantity)
+        utils.update_user_money(interaction.user.id, total_sell_price)
         
-        utils.save_user_inventory(user_id, inventory_data)
-        utils.update_user_money(interaction.user.id, sell_price)
+        await interaction.response.send_message(f"You sold {quantity} '{item_name}' for 🪙 {total_sell_price}!", ephemeral=True)
+
+    @app_commands.command(name="sellall", description="Sells all items of a specific type from your inventory.")
+    @app_commands.autocomplete(item_name=item_autocomplete)
+    @app_commands.describe(item_name="The name of the item you want to sell all of.")
+    async def item_sell_all(self, interaction: discord.Interaction, item_name: str):
+        if interaction.guild and interaction.guild.id != self.main_guild_id:
+            return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
+
+        user_id = str(interaction.user.id)
+        inventory_data = utils.load_user_inventory(user_id)
         
-        await interaction.response.send_message(f"You sold '{item_name}' for 🪙 {sell_price}!", ephemeral=True)
+        current_item_count = inventory_data.get('items', {}).get(item_name.lower(), 0)
+        if current_item_count == 0:
+            return await interaction.response.send_message(f"You don't have any '{item_name}' to sell.", ephemeral=True)
+
+        item_data = utils.get_item_data(item_name)
+        if not item_data:
+            return await interaction.response.send_message(f"Item '{item_name}' not found.", ephemeral=True)
+        
+        sell_price_per_item = item_data['price']
+        total_sell_price = sell_price_per_item * current_item_count
+
+        utils.remove_item_from_inventory(user_id, item_name, current_item_count)
+        utils.update_user_money(interaction.user.id, total_sell_price)
+        
+        await interaction.response.send_message(f"You sold all {current_item_count} of your '{item_name}' for a total of 🪙 {total_sell_price}!", ephemeral=True)
 
     @app_commands.command(name="inventory", description="View the items you currently own.")
     async def inventory_command(self, interaction: discord.Interaction):
@@ -188,7 +273,11 @@ class ItemGroup(app_commands.Group):
         
         user_inventory_data = utils.load_user_inventory(interaction.user.id)
         
-        if not user_inventory_data or (not user_inventory_data.get('items') and not user_inventory_data.get('nets')):
+        # Filter out items with a count of 0
+        items_with_count = {item_name: count for item_name, count in user_inventory_data.get('items', {}).items() if count > 0}
+        
+        # Check if the filtered inventory is empty
+        if not items_with_count and not user_inventory_data.get('nets'):
             return await interaction.response.send_message("Your inventory is empty.", ephemeral=True)
 
         embed = discord.Embed(
@@ -207,10 +296,9 @@ class ItemGroup(app_commands.Group):
                 embed.add_field(name="Equipped Net", value=f"🎣 {equipped_net_data['name']} (Durability: {equipped_net_data['durability']})", inline=False)
         
         # Handle other items
-        items = user_inventory_data.get('items', {})
-        if items:
+        if items_with_count:
             item_list = []
-            for item_name, count in items.items():
+            for item_name, count in items_with_count.items():
                 item_data = utils.get_item_data(item_name)
                 item_emoji = utils.get_item_emoji(item_name, item_data.get("emoji")) if item_data else "🛒"
                 item_list.append(f"{item_emoji} {item_name.capitalize()} x{count}")
@@ -229,7 +317,6 @@ class ItemGroup(app_commands.Group):
             embed.add_field(name="Unequipped Nets", value="\n".join(net_list), inline=False)
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
 
 class Items(commands.Cog):
     """
