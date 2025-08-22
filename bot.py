@@ -1,8 +1,10 @@
 import discord
+print("Script start.")
 from discord.ext import commands, tasks
 from discord import app_commands
 import google.generativeai as genai
 import os
+print("Current working directory:", os.getcwd())
 import textwrap
 from dotenv import load_dotenv
 import json
@@ -62,7 +64,6 @@ async def on_ready():
         "cogs.counting_game",
         "cogs.fun_commands",
         "cogs.pins",
-        "cogs.make_a_sentence",
         "cogs.adventure",
         "cogs.hangrygames",
         "cogs.swear_jar",
@@ -109,15 +110,21 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         await interaction.response.send_message("You must be the bot owner to use this command.", ephemeral=True)
     elif isinstance(error, app_commands.NoPrivateMessage):
         await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+    # The correct class to check for a missing argument
     elif isinstance(error, commands.MissingRequiredArgument):
-        # This line was corrected from app_commands.MissingRequiredArgument
         await interaction.response.send_message("Missing arguments. Please check the command usage.", ephemeral=True)
     else:
-        print(f"Unhandled application command error in {interaction.command.name}: {error}")
+        # Check if the command object exists before trying to access its name
+        command_name = interaction.command.name if interaction.command else "Unknown Command"
+        print(f"Unhandled application command error in {command_name}: {error}")
         traceback.print_exc()
         try:
-            await interaction.response.send_message("An unexpected error occurred while executing this command.", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("An unexpected error occurred while executing this command.", ephemeral=True)
+            else:
+                await interaction.followup.send("An unexpected error occurred while executing this command.", ephemeral=True)
         except discord.errors.InteractionResponded:
+            # If the initial response failed, this will catch it
             await interaction.followup.send("An unexpected error occurred while executing this command.", ephemeral=True)
 
 @bot.tree.command(name="sync", description="Syncs all application commands with Discord.")
