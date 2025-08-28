@@ -49,7 +49,9 @@ SKULL_OVERLAY_FILE = os.path.join(ASSETS_DIR, "skull_overlay.png")
 WINNING_BG_FILE = os.path.join(ASSETS_DIR, "winning_bg.png")
 MEDAL_OVERLAY_FILE = os.path.join(ASSETS_DIR, "winner_overlay.png")
 SORRY_JAR_FILE = 'data/sorry_jar.json'
-
+DISBOARD_TIMESTAMPS_FILE = os.path.join(DATA_DIR, "disboard_timestamps.json")
+BUMP_TIMESTAMPS_FILE = os.path.join(DATA_DIR, "disboard_timestamps.json")  # Keep existing filename
+BUMPPOINT_COOLDOWNS_FILE = os.path.join(DATA_DIR, "bumppoint_cooldowns.json")
 # Other file paths for various bot features
 ADVENTURE_AI_RESTRICTIONS_FILE = os.path.join(DATA_DIR, 'adventure_ai_restrictions.txt')
 DAILY_MESSAGE_COOLDOWNS_FILE = os.path.join(DATA_DIR, "daily_message_cooldowns.json")
@@ -80,6 +82,7 @@ DAILY_POSTS_FILE = os.path.join(DATA_DIR, 'daily_posts.json')
 BUG_COLLECTION_FILE = os.path.join(DATA_DIR, "bug_collection.json")
 PENDING_TRADES_FILE = os.path.join(DATA_DIR, "pending_trades.json")
 BOT_CONFIG_FILE = os.path.join(DATA_DIR, "bot_config.json")
+QOTD_HISTORY_FILE = os.path.join(DATA_DIR, "qotd_history.json")
 REWARDS_FILE = os.path.join(DATA_DIR, 'rewards.json')
 SHOP_ITEMS_FILE = os.path.join(DATA_DIR, "shop_items.json")
 USER_BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
@@ -102,6 +105,29 @@ def save_daily_message_cooldowns(data: Dict[str, str]):
 def load_booster_rewards() -> Dict[str, str]:
     return load_data(BOOSTER_REWARDS_FILE, {})
 
+def load_disboard_timestamps():
+    """Loads bump timestamps for both Disboard and Discodus."""
+    return load_data(DISBOARD_TIMESTAMPS_FILE, {})
+
+def save_disboard_timestamps(data):
+    """Saves bump timestamps for both Disboard and Discodus."""
+    save_data(data, DISBOARD_TIMESTAMPS_FILE)
+
+def load_bump_timestamps():
+    """Loads bump timestamps for both Disboard and Discodus."""
+    return load_data(BUMP_TIMESTAMPS_FILE, {})
+
+def save_bump_timestamps(data):
+    """Saves bump timestamps for both Disboard and Discodus."""
+    save_data(data, BUMP_TIMESTAMPS_FILE)
+
+def load_bumppoint_cooldowns():
+    """Loads user cooldowns for bumppoint command (separate for each bot)."""
+    return load_data(BUMPPOINT_COOLDOWNS_FILE, {})
+
+def save_bumppoint_cooldowns(data):
+    """Saves user cooldowns for bumppoint command."""
+    save_data(data, BUMPPOINT_COOLDOWNS_FILE)
 
 # Add these functions to your cogs/utils.py file
 def load_rewards():
@@ -164,6 +190,8 @@ def save_data(data: Any, file_path: str):
 bot_config = load_data(BOT_CONFIG_FILE, {})
 
 # --- Global Configuration Constants (Reloaded via reload_globals) ---
+modmail_notification_channel_id = None
+modmail_channel_id = None
 QOTD_ROLE_ID = None
 MAIN_GUILD_ID = None
 TEST_CHANNEL_ID = None
@@ -216,6 +244,8 @@ async def channel_id_name_autocomplete(interaction: discord.Interaction, current
     # Explicitly list all channel ID keys to include in the autocomplete
     channel_keys = [
         "TEST_CHANNEL_ID",
+        "modmail_notification_channel_id",
+        "modmail_channel_id",
         "CHAT_REVIVE_CHANNEL_ID",
         "ADVENTURE_CHANNEL_ID",
         "DAILY_COMMENTS_CHANNEL_ID",
@@ -236,13 +266,13 @@ async def channel_id_name_autocomplete(interaction: discord.Interaction, current
         "TREE_CHANNEL_ID",
         "QOTD_CHANNEL_ID"
     ]
-    
+
     for key in channel_keys:
         if key in bot_config and isinstance(bot_config.get(key), int) and current.lower() in key.lower():
             # Create a more readable name for the user
             readable_name = key.replace("_CHANNEL_ID", "").replace("_", " ").title()
             choices.append(app_commands.Choice(name=readable_name, value=key))
-            
+
     return choices
 
 async def role_id_name_autocomplete(interaction: discord.Interaction, current: str):
@@ -284,16 +314,18 @@ def update_dynamic_role(role_name, role_id):
     reload_globals()
 
 def reload_globals():
-    global MAIN_GUILD_ID, TEST_CHANNEL_ID, PLAYER_ROLE_ID, ADVENTURE_MAIN_CHANNEL_ID, CHAT_REVIVE_CHANNEL_ID, DAILY_COMMENTS_CHANNEL_ID, SELF_ROLES_CHANNEL_ID, SINNER_CHAT_CHANNEL_ID, BUMDAY_MONDAY_CHANNEL_ID, TITS_OUT_TUESDAY_CHANNEL_ID, WET_WEDNESDAY_CHANNEL_ID, FURBABY_THURSDAY_CHANNEL_ID, FRISKY_FRIDAY_CHANNEL_ID, SELFIE_SATURDAY_CHANNEL_ID, SLUTTY_SUNDAY_CHANNEL_ID, ANAGRAM_CHANNEL_ID, BUMP_BATTLE_CHANNEL_ID, ANNOUNCEMENTS_CHANNEL_ID, VOTE_CHANNEL_ID, VOTE_COOLDOWN_HOURS, ROLE_IDS, CHAT_REVIVE_ROLE_ID, ANNOUNCEMENTS_ROLE_ID, MOD_ROLE_ID, TIMED_CHANNELS, DAILY_POSTS_CHANNELS, TREE_CHANNEL_ID, COUNTING_CHANNEL_ID, REVIVE_INTERVAL_HOURS, QOTD_CHANNEL_ID, QOTD_ROLE_ID, CHECKIN_CHANNEL_ID, DAILY_MESSAGE_REWARD_CHANNEL_ID, BOOSTER_REWARD_CHANNEL_ID
+    global MAIN_GUILD_ID, TEST_CHANNEL_ID, PLAYER_ROLE_ID, MODMAIL_CHANNEL_ID, MODMAIL_NOTIFICATION_CHANNEL_ID, ADVENTURE_MAIN_CHANNEL_ID, CHAT_REVIVE_CHANNEL_ID, DAILY_COMMENTS_CHANNEL_ID, SELF_ROLES_CHANNEL_ID, SINNER_CHAT_CHANNEL_ID, BUMDAY_MONDAY_CHANNEL_ID, TITS_OUT_TUESDAY_CHANNEL_ID, WET_WEDNESDAY_CHANNEL_ID, FURBABY_THURSDAY_CHANNEL_ID, FRISKY_FRIDAY_CHANNEL_ID, SELFIE_SATURDAY_CHANNEL_ID, SLUTTY_SUNDAY_CHANNEL_ID, ANAGRAM_CHANNEL_ID, BUMP_BATTLE_CHANNEL_ID, ANNOUNCEMENTS_CHANNEL_ID, VOTE_CHANNEL_ID, VOTE_COOLDOWN_HOURS, ROLE_IDS, CHAT_REVIVE_ROLE_ID, ANNOUNCEMENTS_ROLE_ID, MOD_ROLE_ID, TIMED_CHANNELS, DAILY_POSTS_CHANNELS, TREE_CHANNEL_ID, COUNTING_CHANNEL_ID, REVIVE_INTERVAL_HOURS, QOTD_CHANNEL_ID, QOTD_ROLE_ID, CHECKIN_CHANNEL_ID, DAILY_MESSAGE_REWARD_CHANNEL_ID, BOOSTER_REWARD_CHANNEL_ID
 
     bot_config_reloaded = load_data(BOT_CONFIG_FILE, {})
-    
+
     # Reloading all global variables from the config
     QOTD_CHANNEL_ID = bot_config_reloaded.get("QOTD_CHANNEL_ID", TEST_CHANNEL_ID)
     CHECKIN_CHANNEL_ID = bot_config.get("CHECKIN_CHANNEL_ID", None)
     DAILY_MESSAGE_REWARD_CHANNEL_ID = bot_config.get("DAILY_MESSAGE_REWARD_CHANNEL_ID", None)
     BOOSTER_REWARD_CHANNEL_ID = bot_config.get("BOOSTER_REWARD_CHANNEL_ID", None)
     QOTD_ROLE_ID = bot_config_reloaded.get("QOTD_ROLE_ID", None)
+    MODMAIL_CHANNEL_ID = bot_config_reloaded.get("modmail_channel_id")
+    MODMAIL_NOTIFICATION_CHANNEL_ID = bot_config_reloaded.get("modmail_notification_channel_id")
     MAIN_GUILD_ID = bot_config_reloaded.get("MAIN_GUILD_ID", None)
     TEST_CHANNEL_ID = bot_config_reloaded.get("TEST_CHANNEL_ID", 1403900596020580523)
     CHAT_REVIVE_CHANNEL_ID = bot_config_reloaded.get("CHAT_REVIVE_CHANNEL_ID", TEST_CHANNEL_ID)
@@ -317,6 +349,8 @@ def reload_globals():
     TREE_CHANNEL_ID = bot_config_reloaded.get("TREE_CHANNEL_ID", TEST_CHANNEL_ID)
     COUNTING_CHANNEL_ID = bot_config_reloaded.get("COUNTING_CHANNEL_ID", TEST_CHANNEL_ID)
     REVIVE_INTERVAL_HOURS = bot_config_reloaded.get("REVIVE_INTERVAL_HOURS", 6)
+    MODMAIL_CHANNEL_ID = bot_config_reloaded.get("modmail_channel_id"),
+    modmail_notification_channel_id = bot_config_reloaded.get("modmail_notification_channel_id")
     BUMDAY_MONDAY_CHANNEL_ID = bot_config_reloaded.get("BUMDAY_MONDAY_CHANNEL_ID", TEST_CHANNEL_ID)
     TITS_OUT_TUESDAY_CHANNEL_ID = bot_config_reloaded.get("TITS_OUT_TUESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
     WET_WEDNESDAY_CHANNEL_ID = bot_config_reloaded.get("WET_WEDNESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
@@ -439,7 +473,7 @@ def save_user_roles(user_id: int, roles: list[int]):
     all_roles = load_data(USER_ROLES_FILE, {})
     all_roles[str(user_id)] = roles
     save_data(all_roles, USER_ROLES_FILE)
-    
+
 def save_adventure_channel_id(channel_id: int):
     """Saves the adventure channel ID to the bot configuration."""
     update_dynamic_config("ADVENTURE_CHANNEL_ID", channel_id)
@@ -499,11 +533,11 @@ async def generate_scenario_adventure(
         system_instruction_parts.append(f"The player has consented to the following optional elements, which you can introduce into the game: {', '.join(allowed_traps)}.")
     else:
         system_instruction_parts.append("The player has NOT consented to any optional elements. Do not introduce any restraints or traps.")
-    
+
     system_instruction_parts.append("IMPORTANT: You must adhere to the following strict safety guidelines. Never generate content related to: " + ', '.join(ai_restrictions) + ".")
 
     full_prompt = "\n".join(system_instruction_parts)
-    
+
     full_chat_history = [{"role": "user", "parts": [{"text": full_prompt}]}]
     full_chat_history.extend(chat_history)
     full_chat_history.append({"role": "user", "parts": [{"text": "Please provide the next game turn in the specified JSON format."}]})
@@ -519,7 +553,7 @@ async def generate_scenario_adventure(
         if response_text.endswith("```"):
             response_text = response_text[:-len("```")].strip()
         return json.loads(response_text)
-    
+
     except asyncio.TimeoutError:
         return {"scenario_text": "AI generation timed out. Please try again.", "choices": []}
     except json.JSONDecodeError:
@@ -534,9 +568,9 @@ async def generate_image_from_text(scenario_text: str, game_theme: str = None) -
     if not GEMINI_API_KEY:
         print("Gemini API key is not set. Skipping image generation.")
         return None
-    
+
     prompt = f"Create a high-quality fantasy image of a character in a scenario described as: '{scenario_text}'. The setting is a {game_theme if game_theme else 'dark fantasy world'}."
-    
+
     try:
         print("Gemini API does not directly return an image file. Returning a placeholder.")
         img = Image.new('RGB', (1024, 576), color = 'gray')
@@ -546,12 +580,12 @@ async def generate_image_from_text(scenario_text: str, game_theme: str = None) -
         except IOError:
             font = ImageFont.load_default()
         d.text((20, 20), "Placeholder Image from Gemini", fill=(0,0,0), font=font)
-        
+
         img_byte_arr = io.BytesIO()
         img.save(img_byte_arr, format='PNG')
         img_byte_arr.seek(0)
         return img_byte_arr.getvalue()
-    
+
     except Exception as e:
         print(f"Error during Gemini image generation: {e}")
         return None
@@ -600,14 +634,14 @@ def get_user_money(user_id: int) -> int:
     balances = load_data(BALANCES_FILE, {})
     user_id_str = str(user_id)
     user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
-    
+
     # Check for the old format (integer) and migrate it
     if isinstance(user_data, int):
         new_data = {"wallet": user_data, "bank": 0}
         balances[user_id_str] = new_data
         save_data(balances, BALANCES_FILE)
         return new_data["wallet"]
-        
+
     return user_data.get("wallet", 0)
 
 def get_user_bank_money(user_id: int) -> int:
@@ -622,7 +656,7 @@ def get_user_bank_money(user_id: int) -> int:
         balances[user_id_str] = new_data
         save_data(balances, BALANCES_FILE)
         return new_data["bank"]
-        
+
     return user_data.get("bank", 0)
 
 def update_user_money(user_id: int, amount: int):
@@ -630,11 +664,11 @@ def update_user_money(user_id: int, amount: int):
     balances = load_data(BALANCES_FILE, {})
     user_id_str = str(user_id)
     user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
-    
+
     # Check for the old format and migrate before updating
     if isinstance(user_data, int):
         user_data = {"wallet": user_data, "bank": 0}
-        
+
     user_data["wallet"] += amount
     balances[user_id_str] = user_data
     save_data(balances, BALANCES_FILE)
@@ -644,7 +678,7 @@ def update_user_bank_money(user_id: int, amount: int):
     balances = load_data(BALANCES_FILE, {})
     user_id_str = str(user_id)
     user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
-    
+
     # Check for the old format and migrate before updating
     if isinstance(user_data, int):
         user_data = {"wallet": user_data, "bank": 0}
@@ -652,12 +686,12 @@ def update_user_bank_money(user_id: int, amount: int):
     user_data["bank"] += amount
     balances[user_id_str] = user_data
     save_data(balances, BALANCES_FILE)
-    
+
 def transfer_money(user_id: int, amount: int, from_type: str, to_type: str):
     """Transfers money between a user's wallet and bank."""
     balances = load_data(BALANCES_FILE, {})
     user_id_str = str(user_id)
-    
+
     user_data = balances.get(user_id_str, {"wallet": 0, "bank": 0})
     # Check for the old format and migrate before updating
     if isinstance(user_data, int):
@@ -710,7 +744,7 @@ def save_timed_role_data(guild_id, role_id, expiration_date=None, repeatable=Fal
         "day_of_week": day_of_week,
         "hours": hours
     }
-    
+
     # Initialize last_action_time for new daily repeatable roles
     if repeatable and day_of_week == "daily":
         all_timed_roles[guild_id_str][role_id_str]["last_action_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -774,7 +808,7 @@ def set_user_counted(user_id: int):
     if user_id_str not in counted_users:
         counted_users.append(user_id_str)
         save_data(counted_users, COUNTED_USERS_FILE)
-    
+
 def load_user_pins(user_id: int) -> list[str]:
     all_pins = load_data(PINS_FILE, {})
     return all_pins.get(str(user_id), [])
@@ -783,7 +817,7 @@ def save_user_pins(user_id: int, pins: list[str]):
     all_pins = load_data(PINS_FILE, {})
     all_pins[str(user_id)] = pins
     save_data(all_pins, PINS_FILE)
-    
+
 def load_counting_preferences():
     return load_data(COUNTING_PREFERENCES_FILE, {
         "consecutive_counting": False,
@@ -795,7 +829,7 @@ def load_counting_preferences():
 
 def save_counting_preferences(preferences: Dict[str, Any]):
     save_data(preferences, COUNTING_PREFERENCES_FILE)
-    
+
 def load_make_a_sentence_state():
     return load_data(BOT_CONFIG_FILE, {
         "make_a_sentence_channel_id": bot_config.get("MAKE_A_SENTENCE_CHANNEL_ID", TEST_CHANNEL_ID),
@@ -816,10 +850,10 @@ async def generate_hangry_event(tributes: List[discord.Member], event_type: str)
     if not GEMINI_API_KEY:
         print("Gemini API key is not set. Skipping AI generation.")
         return None
-    
+
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(DEFAULT_TRANSLATION_MODEL_NAME)
-    
+
     if event_type == "duel" and len(tributes) == 2:
         prompt = (
             f"Generate a short, high-energy Hangry Games duel event in strict JSON format. "
@@ -849,7 +883,7 @@ async def generate_hangry_event(tributes: List[discord.Member], event_type: str)
 
     else:
         return None
-    
+
     # Retry loop for AI generation
     retries = 3
     while retries > 0:
@@ -863,12 +897,12 @@ async def generate_hangry_event(tributes: List[discord.Member], event_type: str)
                 response_text = response_text[len("```json"):].strip()
             if response_text.endswith("```"):
                 response_text = response_text[:-len("```")].strip()
-            
+
             event = json.loads(response_text)
-            
+
             # Normalize keys to lowercase for consistent access
             normalized_event = {k.lower(): v for k, v in event.items()}
-            
+
             # Validate the normalized keys based on the event type
             if event_type == "duel":
                 required_keys = ['title', 'description', 'winner', 'loser']
@@ -876,7 +910,7 @@ async def generate_hangry_event(tributes: List[discord.Member], event_type: str)
                 required_keys = ['title', 'description', 'tribute']
             else:
                 return None
-            
+
             if all(key in normalized_event for key in required_keys):
                 return normalized_event
             else:
@@ -890,7 +924,7 @@ async def generate_hangry_event(tributes: List[discord.Member], event_type: str)
             retries -= 1
             await asyncio.sleep(1)
             continue
-            
+
     print("Failed to generate a valid event after multiple retries.")
     return None
 
@@ -900,7 +934,7 @@ def load_items() -> List[Dict[str, Any]]:
 def save_items(items: List[Dict[str, Any]]):
     save_data(items, SHOP_ITEMS_FILE)
 
-def get_item_data(item_name: str) -> Optional[Dict[str, Any]]:    
+def get_item_data(item_name: str) -> Optional[Dict[str, Any]]:
     items = load_items()
     return next((item for item in items if item['name'].lower() == item_name.lower()), None)
 
@@ -952,42 +986,38 @@ def remove_item_from_inventory(user_id: int, item_name: str, count: int = 1):
     user_data["items"] = user_items
     user_inventory_data[str(user_id)] = user_data
     save_data(user_inventory_data, USER_INVENTORY_FILE)
-    
+
 async def handle_buy_item(interaction: discord.Interaction, item_to_buy: Dict[str, Any], quantity: int = 1, free_purchase: bool = False):
     user_id = str(interaction.user.id)
 
     # Get user money using the dedicated function
     user_money = get_user_money(interaction.user.id)
-    
+
     # Load user inventory from the correct file (user_inventory.json)
     user_inventory_data = load_data(USER_INVENTORY_FILE, {})
     user_items = user_inventory_data.get(user_id, {}).get('items', {})
-    
+
     total_price = item_to_buy.get('price', 0) * quantity
 
-    # --- Start Debugging Code ---
-    print(f"--- Debugging handle_buy_item ---")
-    print(f"User ID: {user_id}")
-    print(f"User Money: {user_money}")
-    print(f"Item Price: {item_to_buy.get('price', 0)}")
-    print(f"Quantity: {quantity}")
-    print(f"Calculated Total Price: {total_price}")
-    print(f"---------------------------------")
-    # --- End Debugging Code ---
+    # The code below is not needed since the check is handled in shop.py's select_callback
+    # However, if you want a redundant check for safety, it must check for roles.
+    # The current user_items.get(required_item, 0) == 0 check is what is causing the error.
+
+    # --- Corrected logic for requirement check ---
+    if item_to_buy.get('requirement'):
+        required_role_name = item_to_buy['requirement']
+        required_role = discord.utils.get(interaction.user.roles, name=required_role_name)
+        if not required_role:
+            return await interaction.followup.send(f"You do not meet the requirement to buy this item. You need the '{required_role_name}' role.", ephemeral=True)
 
     if not free_purchase:
         if user_money < total_price:
             return await interaction.followup.send("You don't have enough coins to purchase this item.", ephemeral=True)
 
-        if item_to_buy.get('requirement'):
-            required_item = item_to_buy['requirement'].lower()
-            if user_items.get(required_item, 0) == 0:
-                return await interaction.followup.send(f"You need to own the '{required_item}' item to buy this.", ephemeral=True)
-    
     # Update user's money
     if not free_purchase:
         update_user_money(interaction.user.id, -total_price)
-    
+
     # Add item to inventory based on type
     if item_to_buy.get('type') == 'net':
         for _ in range(quantity):
@@ -995,7 +1025,7 @@ async def handle_buy_item(interaction: discord.Interaction, item_to_buy: Dict[st
     else:
         # This function call now uses the corrected argument name
         add_item_to_inventory(interaction.user.id, item_to_buy.get('name'), count=quantity)
-        
+
     await interaction.followup.send(f"Successfully purchased {quantity} '{item_to_buy.get('name')}' for {total_price} coins!", ephemeral=True)
 
 def load_swear_jar_data():
@@ -1077,7 +1107,7 @@ def load_vote_points():
 
 def save_vote_points(data: Dict[str, Any]):
     save_data(data, VOTE_POINTS_FILE)
-    
+
 def get_ai_restrictions() -> str:
     """Loads AI restrictions from a file, creating a default if it doesn't exist."""
     try:
@@ -1116,7 +1146,7 @@ def save_user_roles(user_id: int, roles: list[int]):
     all_roles = load_data(USER_ROLES_FILE, {})
     all_roles[str(user_id)] = roles
     save_data(all_roles, USER_ROLES_FILE)
-    
+
 def save_adventure_channel_id(channel_id: int):
     """Saves the adventure channel ID to the bot configuration."""
     update_dynamic_config("ADVENTURE_CHANNEL_ID", channel_id)
@@ -1169,9 +1199,9 @@ async def generate_image_from_text(scenario_text: str, game_theme: str = None) -
     if not GEMINI_API_KEY:
         print("Gemini API key is not set. Skipping image generation.")
         return None
-    
+
     prompt = f"Create a high-quality fantasy image of a character in a scenario described as: '{scenario_text}'. The setting is a {game_theme if game_theme else 'dark fantasy world'}."
-    
+
     try:
         # Note: As of my last update, Gemini's API for image generation from text is not fully public
         # or it returns a placeholder. The following code simulates a placeholder.
@@ -1185,16 +1215,16 @@ async def generate_image_from_text(scenario_text: str, game_theme: str = None) -
         except IOError:
             font = ImageFont.load_default()
         d.text((20, 20), "Placeholder Image from Gemini", fill=(0, 0, 0), font=font)
-        
+
         img_byte_arr = io.BytesIO()
         img.save(img_byte_arr, format='PNG')
         img_byte_arr.seek(0)
         return img_byte_arr.getvalue()
-    
+
     except Exception as e:
         print(f"Error during Gemini image generation: {e}")
         return None
-    
+
 async def generate_anagram_word_with_gemini() -> Optional[str]:
     """Generates a new word for the anagram game using the Gemini AI."""
     if not GEMINI_API_KEY:
@@ -1239,7 +1269,7 @@ async def generate_work_phrase_with_gemini(is_success: bool) -> Optional[str]:
                 "'lost an important file and had to pay for its replacement'. "
                 "Do not include any extra text or punctuation."
             )
-        
+
         response = await asyncio.wait_for(
             model.generate_content_async(prompt),
             timeout=AI_GENERATION_TIMEOUT
@@ -1266,7 +1296,7 @@ async def generate_crime_phrase_with_gemini(is_success: bool) -> Optional[str]:
                 "Generate a single, short, and funny phrase describing a clumsy, failed crime attempt. "
                 "The phrasing should be embarrassing and humorous. Do not include any extra text or punctuation."
             )
-        
+
         response = await asyncio.wait_for(
             model.generate_content_async(prompt),
             timeout=AI_GENERATION_TIMEOUT
@@ -1294,7 +1324,7 @@ async def generate_duel_image(winner_avatar_url: str, loser_avatar_url: str) -> 
     try:
         bg_img = Image.open(HANGRY_GAMES_BACKGROUND_FILE).convert("RGBA").resize((1000, 500))
         clash_overlay = Image.open(CLASH_OVERLAY_FILE).convert("RGBA").resize((200, 200))
-        
+
         async with aiohttp.ClientSession() as session:
             async def get_image(url: str, session: aiohttp.ClientSession):
                 async with session.get(url) as resp:
@@ -1306,7 +1336,7 @@ async def generate_duel_image(winner_avatar_url: str, loser_avatar_url: str) -> 
 
         winner_avatar = Image.open(io.BytesIO(winner_avatar_data)).convert("RGBA").resize((256, 256))
         loser_avatar = Image.open(io.BytesIO(loser_avatar_data)).convert("RGBA").resize((256, 256))
-        
+
         loser_avatar = ImageOps.grayscale(loser_avatar)
         loser_avatar = loser_avatar.convert("RGBA")
 
@@ -1318,13 +1348,13 @@ async def generate_duel_image(winner_avatar_url: str, loser_avatar_url: str) -> 
 
         final_image.paste(winner_avatar_rotated, (175, 122), winner_avatar_rotated)
         final_image.paste(loser_avatar_rotated, (575, 122), loser_avatar_rotated)
-        
+
         final_image.paste(clash_overlay, (400, 150), clash_overlay)
-        
+
         img_buffer = io.BytesIO()
         final_image.save(img_buffer, format="PNG")
         img_buffer.seek(0)
-        
+
         return discord.File(img_buffer, filename="duel_event.png")
 
     except FileNotFoundError as e:
@@ -1342,7 +1372,7 @@ async def generate_solo_death_image(avatar_url: str) -> discord.File:
     try:
         bg_img = Image.open(HANGRY_GAMES_BACKGROUND_FILE).convert("RGBA").resize((1000, 500))
         skull_overlay = Image.open(SKULL_OVERLAY_FILE).convert("RGBA").resize((200, 200))
-        
+
         async with aiohttp.ClientSession() as session:
             async def get_image(url: str, session: aiohttp.ClientSession):
                 async with session.get(url) as resp:
@@ -1352,20 +1382,20 @@ async def generate_solo_death_image(avatar_url: str) -> discord.File:
             avatar_data = await get_image(avatar_url, session)
 
         avatar_img = Image.open(io.BytesIO(avatar_data)).convert("RGBA").resize((256, 256))
-        
+
         avatar_img = ImageOps.grayscale(avatar_img)
         avatar_img = avatar_img.convert("RGBA")
 
         red_tint = Image.new("RGBA", avatar_img.size, (255, 0, 0, 100))
         avatar_img = Image.alpha_composite(avatar_img, red_tint)
-        
+
         final_image = Image.new("RGBA", (1000, 500))
         final_image.paste(bg_img, (0,0))
-        
+
         vignette_overlay = Image.new('RGBA', final_image.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(vignette_overlay)
         center_x, center_y = final_image.width // 2, final_image.height // 2
-        
+
         for i in range(100):
             alpha = int(255 * (i / 100))
             draw.ellipse((center_x - i*5, center_y - i*2.5, center_x + i*5, center_y + i*2.5), fill=(0, 0, 0, alpha))
@@ -1374,13 +1404,13 @@ async def generate_solo_death_image(avatar_url: str) -> discord.File:
 
         final_image.paste(avatar_img, (int((1000 - 256)/2), int((500 - 256)/2)), avatar_img)
         final_image.paste(skull_overlay, (int((1000 - 200)/2), int((500 - 200)/2)), skull_overlay)
-        
+
         draw = ImageDraw.Draw(final_image)
         try:
             font = ImageFont.truetype("arialbd.ttf", 60)
         except IOError:
             font = ImageFont.load_default()
-        
+
         game_over_text = "GAME OVER"
         text_bbox = draw.textbbox( (0,0), game_over_text, font=font)
         text_width = text_bbox[2] - text_bbox[0]
@@ -1389,9 +1419,9 @@ async def generate_solo_death_image(avatar_url: str) -> discord.File:
         img_buffer = io.BytesIO()
         final_image.save(img_buffer, format="PNG")
         img_buffer.seek(0)
-        
+
         return discord.File(img_buffer, filename="solo_death_event.png")
-    
+
     except FileNotFoundError as e:
         print(f"Error: A required local image file was not found: {e}. Please ensure the images are in the '{ASSETS_DIR}' directory.")
         return discord.File(io.BytesIO(b""), filename="error.png")
@@ -1407,30 +1437,30 @@ async def generate_win_image(winner_avatar_url: str) -> discord.File:
     try:
         bg_img = Image.open(WINNING_BG_FILE).convert("RGBA").resize((1000, 500))
         medal_overlay = Image.open(MEDAL_OVERLAY_FILE).convert("RGBA")
-        
+
         async with aiohttp.ClientSession() as session:
             async with session.get(winner_avatar_url) as resp:
                 resp.raise_for_status()
                 avatar_data = await resp.read()
         avatar_img = Image.open(io.BytesIO(avatar_data)).convert("RGBA")
-        
+
         avatar_img = avatar_img.resize((350, 350))
         medal_overlay = medal_overlay.resize((400, 400))
-        
+
         final_image = bg_img.copy()
 
         avatar_x = (bg_img.width - avatar_img.width) // 2
         avatar_y = (bg_img.height - avatar_img.height) // 2 - 50
         final_image.paste(avatar_img, (avatar_x, avatar_y), avatar_img)
-        
+
         medal_x = (bg_img.width - medal_overlay.width) // 2
         medal_y = avatar_y + avatar_img.height - 100
         final_image.paste(medal_overlay, (medal_x, medal_y), medal_overlay)
-        
+
         img_buffer = io.BytesIO()
         final_image.save(img_buffer, format="PNG")
         img_buffer.seek(0)
-        
+
         return discord.File(img_buffer, filename="winner_card.png")
 
     except FileNotFoundError as e:

@@ -80,18 +80,63 @@ class Economy(commands.Cog):
         self.bump_battle_channel_id = utils.bot_config.get("BUMP_BATTLE_CHANNEL_ID")
         self.vote_channel_id = utils.bot_config.get("VOTE_CHANNEL_ID")
         self.announcements_channel_id = utils.bot_config.get("ANNOUNCEMENTS_CHANNEL_ID")
+        self.bump_channel_id = utils.bot_config.get("BUMP_CHANNEL_ID") 
 
         # Define cooldown times in seconds
         self.BUMP_COOLDOWN = 120
         self.POINT_COOLDOWN = 120
         self.VOTE_COOLDOWN = 360
+        self.disboard_cooldown_seconds = 2 * 60 * 60 # 2 hours
+        self.cooldown_role_id = 1293639562815475752
         
     @commands.Cog.listener()
     async def on_ready(self):
         # This listener is called when the cog is loaded and the bot is ready.
         # It ensures that the anagram game task starts after the bot is connected.
         self.anagram_game_task.start()
+        self.cooldown_role_task.start()
         print("Anagram game task started.")
+        print("Cooldown role task started.")
+
+
+    @tasks.loop(seconds=30)  # Check every 30 seconds
+    async def cooldown_role_task(self):
+        """This task runs to check for and remove the cooldown role."""
+        await self.bot.wait_until_ready()
+        
+        guild = self.bot.get_guild(self.main_guild_id)
+        if not guild:
+            print("Main guild not found. Skipping cooldown role task.")
+            return
+
+        cooldown_role = guild.get_role(self.cooldown_role_id)
+        if not cooldown_role:
+            print("Cooldown role not found. Skipping cooldown role task.")
+            return
+
+        # Load timestamps to check for cooldown expiration
+        cooldown_data = utils.load_daily_message_cooldowns()
+        
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cooldown_seconds = 16 * 60 * 60
+
+        for user_id_str, timestamp_str in list(cooldown_data.items()):
+            try:
+                member = await guild.fetch_member(int(user_id_str))
+                if member and cooldown_role in member.roles:
+                    last_reward_time = datetime.datetime.fromisoformat(timestamp_str)
+                    time_since_last_reward = (now - last_reward_time).total_seconds()
+
+                    if time_since_last_reward >= cooldown_seconds:
+                        print(f"DEBUG: Removing cooldown role from user {member.display_name}")
+                        await member.remove_roles(cooldown_role, reason="Daily message reward cooldown expired.")
+            except discord.NotFound:
+                # User left the server, clean up their data
+                del cooldown_data[user_id_str]
+                utils.save_daily_message_cooldowns(cooldown_data)
+                print(f"DEBUG: User {user_id_str} not found, cleaning up cooldown data.")
+            except Exception as e:
+                print(f"DEBUG: An error occurred while processing user {user_id_str}: {e}")
 
     # --- Anagram Game Command and Loop ---
     @app_commands.command(name="start_anagram_game", description="Starts a new Anagram game immediately.")
@@ -611,16 +656,6 @@ class Economy(commands.Cog):
             embed.color = discord.Color.red()
         
         await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="modifybal", description="[Moderator Only] Adds/removes balance for a user.")
-    @app_commands.check(is_moderator)
-    @app_commands.describe(member="The member to modify the balance of.", amount="The amount to add or remove.")
-    async def modify_balance(self, interaction: discord.Interaction, member: discord.Member, amount: int):
-        """A moderator command to manually adjust a user's balance."""
-        user_id = member.id
-        utils.update_user_money(user_id, amount)
-        
-        await interaction.response.send_message(f"Added {amount} <a:starcoin:1280590254935380038> to {member.mention}'s balance.", ephemeral=True)
     
     # --- New Unified Leaderboard Command ---
     @app_commands.command(name="leaderboard", description="Shows the top users for a specific game or metric.")
@@ -810,30 +845,100 @@ class Economy(commands.Cog):
 
         await interaction.followup.send(embed=embed, file=file)
 
+    # NEW: Command to remove the cooldown role from all users
+    @app_commands.command(name="cleartimeoutrole", description="[Moderator Only] Removes the 16h timeout role from all users who have it.")
+    @app_commands.check(is_moderator)
+    async def cleartimeoutrole(self, interaction: discord.Interaction):
+        """Removes the cooldown role from all users on the server."""
+        await interaction.response.defer(ephemeral=True)
 
-    # --- Listeners for other games ---
+        guild = interaction.guild
+        cooldown_role = guild.get_role(self.cooldown_role_id)
+
+        if not cooldown_role:
+            return await interaction.followup.send(f"Error: The cooldown role with ID {self.cooldown_role_id} was not found on this server.", ephemeral=True)
+        
+        members_with_role = [member for member in guild.members if cooldown_role in member.roles]
+        
+        if not members_with_role:
+            return await interaction.followup.send("No users currently have the cooldown role.", ephemeral=True)
+
+        cleared_count = 0
+        for member in members_with_role:
+            try:
+                await member.remove_roles(cooldown_role, reason="Manual reset via cleartimeoutrole command.")
+                cleared_count += 1
+                await asyncio.sleep(0.5) # Add a small delay to avoid rate-limiting
+            except discord.Forbidden:
+                print(f"Error: Bot does not have permissions to remove role from {member.display_name}")
+            except Exception as e:
+                print(f"Error removing role from {member.display_name}: {e}")
+
+        # Also clear the cooldown data file
+        utils.save_daily_message_cooldowns({})
+        
+        await interaction.followup.send(f"Successfully removed the cooldown role from **{cleared_count}** user(s) and reset the cooldown data file.", ephemeral=True)
+
+    # NEW: Listener to detect bumps from multiple bots and log the timestamp
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Listens for messages to handle anagram, daily rewards, and the sorry jar."""
         if message.author.bot or not message.guild:
             return
         
-        # Check for daily message reward
+        # Check for Disboard or Discodus bump messages in the single bump channel
+        bump_channel_id = utils.bot_config.get('BUMP_CHANNEL_ID')
+        
+        if message.channel.id == bump_channel_id:
+            is_disboard_bump = message.author.name == "Disboard" and "Bump done" in message.content
+            is_discodus_bump = message.author.name == "DISCODUS: Discord Server Booster" and "Bump done!" in message.content
+            
+            if is_disboard_bump or is_discodus_bump:
+                guild_id_str = str(message.guild.id)
+                bump_timestamps = utils.load_disboard_timestamps()
+                bump_timestamps[guild_id_str] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                utils.save_disboard_timestamps(bump_timestamps)
+                print(f"DEBUG: External bump detected and timestamp logged for guild {guild_id_str}.")
+
+
+        # Existing check-in logic
         daily_reward_channel_id = utils.bot_config.get('DAILY_MESSAGE_REWARD_CHANNEL_ID')
         if message.channel.id == daily_reward_channel_id:
-            print(f"DEBUG: Message in daily reward channel from {message.author.name}. Content: '{message.content}'.")
             user_id_str = str(message.author.id)
             cooldowns = utils.load_daily_message_cooldowns()
-            last_reward_date_str = cooldowns.get(user_id_str)
-            today_str = datetime.date.today().isoformat()
+            
+            now = datetime.datetime.now(datetime.timezone.utc)
+            last_reward_str = cooldowns.get(user_id_str)
+            
+            # Cooldown is 16 hours, converted to seconds
+            cooldown_seconds = 16 * 60 * 60
+            
+            can_receive_reward = True
+            if last_reward_str:
+                last_reward_time = datetime.datetime.fromisoformat(last_reward_str)
+                time_since_last_reward = (now - last_reward_time).total_seconds()
+                
+                if time_since_last_reward < cooldown_seconds:
+                    can_receive_reward = False
 
-            if last_reward_date_str != today_str:
+            if can_receive_reward:
                 utils.update_user_money(message.author.id, 25)
-                cooldowns[user_id_str] = today_str
+                cooldowns[user_id_str] = now.isoformat()
                 utils.save_daily_message_cooldowns(cooldowns)
-                print(f"DEBUG: Awarded 25 coins to {message.author.name} for daily message.")
-            else:
-                print(f"DEBUG: {message.author.name} is on cooldown for daily message reward.")
+                
+                # Add the cooldown role
+                guild = message.guild
+                cooldown_role = guild.get_role(self.cooldown_role_id)
+                if cooldown_role:
+                    await message.author.add_roles(cooldown_role, reason="Received daily message reward.")
+                
+                # Create and send the embed message
+                embed = discord.Embed(
+                    description="<a:mm:1279185497163305082> You have been credited with 25 <a:starcoin:1280590254935380038> <a:mm:1279185497163305082>",
+                    color=discord.Color.purple()
+                )
+                embed.set_footer(text="Please come back in 24 hours")
+                await message.channel.send(embed=embed, reference=message.to_reference())
+
 
         # Anagram game logic
         anagram_state = utils.load_anagram_game_state()
@@ -885,55 +990,91 @@ class Economy(commands.Cog):
 
             await message.channel.send(embed=embed, file=file)
 
+
     # --- New Slash Commands for Bump Battle ---
-    @app_commands.command(name="bump", description="Bumps your team in the Bump Battle!")
-    @app_commands.describe(team="The team you want to bump.")
+    @app_commands.command(name="bumppoint", description="Awards a point for bumping the server!")
+    @app_commands.describe(team="The team you want to give a point to.")
     @app_commands.choices(team=[
         app_commands.Choice(name="doms", value="dom"),
         app_commands.Choice(name="subs", value="sub")
     ])
-    @app_commands.checks.cooldown(1, 7200, key=lambda i: (i.guild_id, i.user.id, i.data['options'][0]['value']))
-    async def bump_command(self, interaction: discord.Interaction, team: app_commands.Choice[str]):
+    @app_commands.checks.cooldown(1, 7200, key=lambda i: (i.guild_id, i.user.id))
+    async def bumppoint(self, interaction: discord.Interaction, team: app_commands.Choice[str]):
         """Awards a point for bumping a server with a slash command."""
         await interaction.response.defer()
         user_id = str(interaction.user.id)
         team_name = team.value
+        guild = interaction.guild
+
+        # Check for the user-specific cooldown
+        try:
+            # We call the real cooldown check here. If it fails, the on_app_command_error handler will catch it.
+            await self.bot.get_application_command("bumppoint", guild=guild).invoke_with_cooldown(interaction)
+        except commands.CommandOnCooldown as e:
+            # If the user is on cooldown, send the slap message
+            slap_gif_path = os.path.join(os.getcwd(), 'assets', 'slap.gif')
+            file = discord.File(slap_gif_path, filename='slap.gif')
+            
+            embed = discord.Embed(
+                title="Don't get too excited!",
+                description=f"You can only use this command once per Disboard/Discodus bump. Please wait another {int(e.retry_after)} seconds before trying again.",
+                color=discord.Color.red()
+            )
+            embed.set_image(url="attachment://slap.gif")
+            return await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+
+        # Check if the server has been bumped on an external platform recently
+        bump_timestamps = utils.load_disboard_timestamps()
+        last_external_bump_str = bump_timestamps.get(str(guild.id))
         
-        bump_battle_state = utils.load_bump_battle_state()
+        now = datetime.datetime.now(datetime.timezone.utc)
         
-        if team_name == 'dom':
-            bump_battle_state['dom']['points'] += 1
-            if user_id not in bump_battle_state['dom']['users']:
-                bump_battle_state['dom']['users'][user_id] = 0
-            bump_battle_state['dom']['users'][user_id] += 1
+        can_award_points = False
+        # The cooldown for Disboard is 2 hours (7200 seconds)
+        disboard_cooldown_seconds = 2 * 60 * 60
+        
+        if last_external_bump_str:
+            last_external_bump_time = datetime.datetime.fromisoformat(last_external_bump_str)
+            time_since_last_bump = (now - last_external_bump_time).total_seconds()
             
-            # Correctly reference the local GIF file
-            gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_domme.gif')
-            file = discord.File(gif_path, filename='bumpbattle_domme.gif')
+            if time_since_last_bump < disboard_cooldown_seconds:
+                can_award_points = True
+                
+        if can_award_points:
+            bump_battle_state = utils.load_bump_battle_state()
             
-            embed = discord.Embed(title="1 Point For The Doms!", color=discord.Color.green())
-            embed.set_image(url="attachment://bumpbattle_domme.gif")
+            if team_name == 'dom':
+                bump_battle_state['dom']['points'] += 1
+                if user_id not in bump_battle_state['dom']['users']:
+                    bump_battle_state['dom']['users'][user_id] = 0
+                bump_battle_state['dom']['users'][user_id] += 1
+            else:
+                bump_battle_state['sub']['points'] += 1
+                if user_id not in bump_battle_state['sub']['users']:
+                    bump_battle_state['sub']['users'][user_id] = 0
+                bump_battle_state['sub']['users'][user_id] += 1
+
+            utils.save_bump_battle_state(bump_battle_state)
             
-            await interaction.followup.send(content=f"Thank you for bumping the server. I have given you one <a:bluecoin:1280590252817387593> for the Doms, you now have {bump_battle_state['dom']['points']}!", embed=embed, file=file)
+            # Send the confirmation message and image
+            if team_name == 'dom':
+                gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_domme.gif')
+                file = discord.File(gif_path, filename='bumpbattle_domme.gif')
+                embed = discord.Embed(title="1 Point For The Doms!", color=discord.Color.green())
+                embed.set_image(url="attachment://bumpbattle_domme.gif")
+                await interaction.followup.send(content=f"Thank you for bumping the server. I have given you one <a:bluecoin:1280590252817387593> for the Doms, you now have {bump_battle_state['dom']['points']}!", embed=embed, file=file)
+            else:
+                gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_sub.gif')
+                file = discord.File(gif_path, filename='bumpbattle_sub.gif')
+                embed = discord.Embed(title="1 Point For The Subs!", color=discord.Color.green())
+                embed.set_image(url="attachment://bumpbattle_sub.gif")
+                await interaction.followup.send(content=f"Thank you for bumping the server. I have given you one <a:bluecoin:1280590252817387593> for the Subs, you now have {bump_battle_state['sub']['points']}!", embed=embed, file=file)
+            
+            if bump_battle_state[team_name]['points'] >= 100:
+                await self.end_bump_battle(interaction.guild, team_name, bump_battle_state)
         else:
-            bump_battle_state['sub']['points'] += 1
-            if user_id not in bump_battle_state['sub']['users']:
-                bump_battle_state['sub']['users'][user_id] = 0
-            bump_battle_state['sub']['users'][user_id] += 1
-            
-            # Correctly reference the local GIF file
-            gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_sub.gif')
-            file = discord.File(gif_path, filename='bumpbattle_sub.gif')
+            await interaction.followup.send("You need to bump the server on Disboard or Discodus first! Use `/bump` with one of those bots, then try this command again.", ephemeral=True)
 
-            embed = discord.Embed(title="1 Point For The Subs!", color=discord.Color.green())
-            embed.set_image(url="attachment://bumpbattle_sub.gif")
-            
-            await interaction.followup.send(content=f"Thank you for bumping the server. I have given you one <a:bluecoin:1280590252817387593> for the Subs, you now have {bump_battle_state['sub']['points']}!", embed=embed, file=file)
-
-        utils.save_bump_battle_state(bump_battle_state)
-        
-        if bump_battle_state[team_name]['points'] >= 100:
-            await self.end_bump_battle(interaction.guild, team_name, bump_battle_state)
 
     @app_commands.command(name="vote", description="Adds a point to your team for a server vote!")
     @app_commands.describe(team="The team you want to vote for.")

@@ -23,7 +23,7 @@ class AdventureGameOverView(discord.ui.View):
         self.player_id = player_id
         self.game_theme = game_theme
         self.message = None
-    
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.player_id:
             await interaction.response.send_message("This isn't your adventure game!", ephemeral=True)
@@ -33,10 +33,10 @@ class AdventureGameOverView(discord.ui.View):
     @discord.ui.button(label="Retry Adventure", style=discord.ButtonStyle.green, emoji="🔄")
     async def retry_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        
+
         if self.message:
             await self.message.edit(view=None)
-        
+
         await interaction.followup.send("Adventure restarting! Please wait for the new scenario.", ephemeral=False)
 
         await self.cog_instance._reset_game_in_channel(self.channel_id, self.player_id, self.game_theme)
@@ -44,10 +44,10 @@ class AdventureGameOverView(discord.ui.View):
     @discord.ui.button(label="End Game", style=discord.ButtonStyle.red, emoji="🛑")
     async def stop_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        
+
         if self.message:
             await self.message.edit(content="The game has been ended, but this channel will be deleted soon.", view=None)
-        
+
         await self.cog_instance._end_game(self.channel_id, self.player_id, delete_channel=True, interaction=interaction)
 
 
@@ -80,9 +80,15 @@ class AdventureChoicesView(discord.ui.View):
             print("WARNING: Choices provided to AdventureChoicesView are not a list or are empty. No buttons will be added.")
             return
 
-        for i, choice_text in enumerate(self.choices):
-            if not isinstance(choice_text, str):
-                print(f"WARNING: Choice at index {i} is not a string, skipping. Value: {choice_text}")
+        for i, choice_data in enumerate(self.choices):
+            # Check if the choice is a dictionary and get the 'text' key
+            if isinstance(choice_data, dict) and 'text' in choice_data:
+                choice_text = choice_data['text']
+            # Assume it's a string if not a dictionary
+            elif isinstance(choice_data, str):
+                choice_text = choice_data
+            else:
+                print(f"WARNING: Choice at index {i} is not a dictionary or a string, skipping. Value: {choice_data}")
                 continue
 
             button_label = choice_text[:80]
@@ -100,10 +106,10 @@ class AdventureChoicesView(discord.ui.View):
             print(f"DEBUG: Player {interaction.user.name} pressed button for choice: '{button.full_choice_text}'")
             try:
                 await interaction.response.defer()
-                
+
                 if self.message:
                     await self.message.edit(view=None)
-                    
+
                 game = self.cog_instance.active_games.get(interaction.channel.id)
                 if game:
                     await self.cog_instance._process_player_action(game, button.full_choice_text, from_button=True)
@@ -194,7 +200,7 @@ class Adventure(commands.Cog):
                 game.original_roles = game_data.get('original_roles', [])
                 game.waiting_for_consent = game_data.get('waiting_for_consent', False)
                 game.current_choices = game_data.get('current_choices', [])
-                
+
                 self.active_games[channel_id] = game
                 print(f"DEBUG: Loaded active game in channel {channel_id} for player {game.player_name}")
             except Exception as e:
@@ -241,7 +247,7 @@ class Adventure(commands.Cog):
 
     async def _end_game(self, channel_id: int, player_id: int, delete_channel: bool = True, interaction: discord.Interaction = None):
         print(f"DEBUG: Ending game for channel {channel_id} and player {player_id}")
-        
+
         game = self.active_games.get(channel_id)
         if game:
             self.active_games.pop(channel_id, None)
@@ -252,7 +258,7 @@ class Adventure(commands.Cog):
             if guild:
                 member = guild.get_member(player_id)
                 adventure_player_role = discord.utils.get(guild.roles, name=self._temp_role_names["Adventure Player"])
-                
+
                 staff_role_ids = utils.MOD_ROLE_ID if isinstance(utils.MOD_ROLE_ID, list) else [utils.MOD_ROLE_ID]
                 is_staff = False
                 if member:
@@ -312,9 +318,9 @@ class Adventure(commands.Cog):
                     await interaction.followup.send("This adventure thread will be deleted shortly. Farewell!", ephemeral=True)
                 elif channel:
                     await channel.send("This adventure thread will be deleted shortly. Farewell!")
-                
+
                 await self._cleanup_channel(channel)
-        
+
         print(f"DEBUG: End game routine complete.")
 
     async def _reset_game_in_channel(self, channel_id: int, player_id: int, game_theme: str):
@@ -328,14 +334,14 @@ class Adventure(commands.Cog):
         game.waiting_for_consent = True
         self.active_games[channel_id] = game
         self._save_game_state(game)
-        
+
         channel = self.bot.get_channel(channel_id)
         if channel:
             consent_traps_list = [
                 utils.TRAP_DISPLAY_NAMES.get(t, t.replace('_', ' ').title()) for t in utils.ALL_TRAP_OPTIONS
                 if t.lower() not in self.ai_restrictions
             ]
-            
+
             consent_message_text = (
                 f"**Your adventure has been restarted.**\n\n"
                 "Please review the following optional elements. "
@@ -347,7 +353,7 @@ class Adventure(commands.Cog):
             else:
                 consent_message_text += "Due to content restrictions, no optional elements are available for consent. Your adventure will begin immediately."
                 game.waiting_for_consent = False
-            
+
             await channel.send(consent_message_text)
 
     async def _process_player_action(self, game: AdventureGame, action: str, from_button: bool = False):
@@ -399,7 +405,7 @@ class Adventure(commands.Cog):
                     if not trap_name or not action_type or trap_name not in game.allowed_traps:
                         print(f"DEBUG: Invalid or disallowed trap effect from AI: {effect} (Reason: Trap name '{ai_trap_display_name}' not recognized or not in allowed_traps: {game.allowed_traps})")
                         continue
-                    
+
                     current_level = game.active_traps.get(trap_name, 0)
                     prev_incapacitated = game.is_incapacitated
 
@@ -412,11 +418,11 @@ class Adventure(commands.Cog):
                             max_level = getattr(utils, f"MAX_{trap_name.upper()}_LEVEL", 1)
                             if trap_name == "rope":
                                 max_level = utils.MAX_ROPE_TIGHTNESS
-                            
+
                             game.active_traps[trap_name] = min(current_level + amount, max_level)
                         else:
                             game.active_traps[trap_name] = current_level + amount
-                    
+
                     game.check_incapacitation()
 
                     if game.is_incapacitated and not prev_incapacitated:
@@ -425,7 +431,7 @@ class Adventure(commands.Cog):
                         await channel.send(f"You managed to loosen some restraints! You are no longer critically incapacitated, but still bound.")
             else:
                 print("DEBUG: AI response did not contain 'trap_effects'. No traps were applied in this turn.")
-            
+
             if scenario_data.get("game_outcome") == "escape":
                 await channel.send(f"**🎉 Congratulations, {game.player_name}!** {scenario_data['scenario_text']}")
                 game.game_won = True
@@ -451,7 +457,7 @@ class Adventure(commands.Cog):
     async def _send_adventure_message(self, channel, game, scenario_data):
         view = None
         choices = scenario_data.get("choices", [])
-        
+
         if not isinstance(choices, list):
             print(f"ERROR: Expected 'choices' to be a list, but received type: {type(choices)}. Value: {choices}")
             await channel.send("An internal error occurred while processing your adventure. The choices could not be displayed. The game will now end.")
@@ -459,13 +465,22 @@ class Adventure(commands.Cog):
             return
 
         message_content = scenario_data["scenario_text"]
-        
+
         if choices:
             message_content += "\n\n**Choices:**\n"
             for i, choice in enumerate(choices):
-                message_content += f"{i + 1}. {choice}\n"
+                # Check if the choice is a dictionary and get the 'text' key
+                if isinstance(choice, dict) and 'text' in choice:
+                    choice_text = choice['text']
+                # Assume it's a string if not a dictionary
+                elif isinstance(choice, str):
+                    choice_text = choice
+                else:
+                    choice_text = "Invalid choice format" # Handle unexpected format gracefully
+
+                message_content += f"{i + 1}. {choice_text}\n"
             view = AdventureChoicesView(self, game.player_id, choices)
-        
+
         if scenario_data.get("game_outcome") not in ["escape", "surrender"]:
             sent_message = await channel.send(message_content, view=view)
             if view:
@@ -485,7 +500,7 @@ class Adventure(commands.Cog):
         print(f"DEBUG: /choose_adventure command received from {interaction.user.name}")
 
         player_id = interaction.user.id
-        
+
         for game_channel_id, game_instance in list(self.active_games.items()):
             if game_instance.player_id == player_id:
                 existing_channel = self.bot.get_channel(game_channel_id)
@@ -505,14 +520,14 @@ class Adventure(commands.Cog):
         if not adventure_main_channel_id:
             await interaction.followup.send("The main adventure channel is not configured. Please contact an admin.", ephemeral=True)
             return
-        
+
         main_channel = self.bot.get_channel(adventure_main_channel_id)
         if not isinstance(main_channel, discord.TextChannel):
             await interaction.followup.send("The main adventure channel is not a valid text channel. Please contact an admin.", ephemeral=True)
             return
 
         staff_role_ids = utils.MOD_ROLE_ID if isinstance(utils.MOD_ROLE_ID, list) else [utils.MOD_ROLE_ID]
-        is_staff = any(str(role.id) in staff_role_ids for role in interaction.user.roles)
+        is_staff = any(str(r.id) in staff_role_ids for r in interaction.user.roles)
 
         if not guild.me.guild_permissions.manage_roles or not guild.me.guild_permissions.manage_channels:
             if is_staff:
@@ -520,18 +535,18 @@ class Adventure(commands.Cog):
             else:
                 await interaction.followup.send("I don't have enough permissions to manage roles or channels. Please grant me 'Manage Roles' and 'Manage Channels' permissions.", ephemeral=True)
                 return
-        
+
         new_thread = None
 
         try:
             thread_name = f"adventure-{interaction.user.name.lower().replace(' ', '-')}"
-            
+
             new_thread = await main_channel.create_thread(
                 name=thread_name,
                 type=discord.ChannelType.public_thread
             )
             print(f"DEBUG: New thread created: {new_thread.id}")
-            
+
             game = AdventureGame(new_thread.id, interaction.user.id, interaction.user.display_name, game_theme=theme, allowed_traps=[])
             game.waiting_for_consent = True
 
@@ -540,13 +555,13 @@ class Adventure(commands.Cog):
             print(f"DEBUG: Game state initialized and added to active games.")
 
             user_roles_to_restore = []
-            
+
             if not is_staff:
                 for role in interaction.user.roles:
                     if role != guild.default_role and guild.me.top_role > role:
                         user_roles_to_restore.append(role)
                 game.original_roles = [role.id for role in user_roles_to_restore]
-            
+
             adventure_player_role = discord.utils.get(guild.roles, name=self._temp_role_names["Adventure Player"])
             if adventure_player_role and not is_staff:
                 if guild.me.top_role > adventure_player_role:
@@ -574,7 +589,7 @@ class Adventure(commands.Cog):
                 utils.TRAP_DISPLAY_NAMES.get(t, t.replace('_', ' ').title()) for t in utils.ALL_TRAP_OPTIONS
                 if t.lower() not in self.ai_restrictions
             ]
-            
+
             consent_message_text = (
                 f"**Welcome, {interaction.user.mention}!**\n\n"
                 "Before we begin, please review the following optional elements. "
@@ -606,7 +621,7 @@ class Adventure(commands.Cog):
             await interaction.followup.send(f"An unexpected error occurred while starting your adventure: {e}", ephemeral=True)
             print(f"ERROR: Unexpected error starting adventure: {e}")
             traceback.print_exc(file=sys.stdout)
-    
+
     async def _start_initial_scenario(self, channel, game):
         try:
             scenario_data = await utils.generate_scenario_adventure(
@@ -618,7 +633,7 @@ class Adventure(commands.Cog):
                 allowed_traps=game.allowed_traps,
                 is_incapacitated=game.is_incapacitated
             )
-            
+
             if not scenario_data or not isinstance(scenario_data, dict) or 'scenario_text' not in scenario_data:
                 await channel.send("An error occurred while generating the scenario. Please try again or use `/end_adventure` to restart.")
                 print(f"ERROR: Invalid or empty scenario_data received from AI after consent. Data: {scenario_data}")
@@ -627,7 +642,7 @@ class Adventure(commands.Cog):
                 return
 
             game.add_to_history("model", scenario_data["scenario_text"])
-            
+
             if not scenario_data.get("trap_effects"):
                 print("DEBUG: AI response missing 'trap_effects' key for initial scenario. Inferring from scenario_text.")
                 lower_scenario = scenario_data.get('scenario_text', '').lower()
@@ -654,7 +669,7 @@ class Adventure(commands.Cog):
         target_id = interaction.user.id
         target_name = interaction.user.display_name
         is_mod_action = False
-        
+
         staff_role_ids = utils.MOD_ROLE_ID if isinstance(utils.MOD_ROLE_ID, list) else [utils.MOD_ROLE_ID]
         is_mod = any(str(r.id) in staff_role_ids for r in interaction.user.roles)
 
@@ -688,7 +703,7 @@ class Adventure(commands.Cog):
                 await channel.send(f"The adventure has been ended for {user.mention} by {interaction.user.mention}. This thread will be deleted shortly.")
             else:
                 await channel.send(f"{interaction.user.mention} has ended their adventure. This thread will be deleted shortly.")
-        
+
         await self._end_game(game_channel_id, target_id, delete_channel=True, interaction=interaction)
 
         if is_mod_action:
@@ -711,22 +726,24 @@ class Adventure(commands.Cog):
             if game.player_id == message.author.id and not game.game_won:
                 print("DEBUG: Message is from the correct player in an active game.")
                 player_input = message.content
-                
+
                 is_choice_number = False
                 choice_text = None
                 if player_input.isdigit():
                     choice_index = int(player_input) - 1
                     if 0 <= choice_index < len(game.current_choices):
-                        choice_text = game.current_choices[choice_index]
+                        choice_data = game.current_choices[choice_index]
+                        if isinstance(choice_data, dict) and 'text' in choice_data:
+                            choice_text = choice_data['text']
+                        elif isinstance(choice_data, str):
+                            choice_text = choice_data
+                        else:
+                            choice_text = None # or some other default
                         is_choice_number = True
-                
-                action_to_process = choice_text if is_choice_number else player_input
+                    else:
+                        await message.channel.send("That is not a valid choice number. Please choose from the list or type a custom action.")
+                        return
 
-                if game.is_trap_active("ball_gag"):
-                    garbled_input = utils.garble_text(player_input)
-                    await message.channel.send(f"*{message.author.display_name} attempts to speak:* {garbled_input}")
-                    print("DEBUG: Player is gagged, sent garbled message.")
-                
                 if game.waiting_for_consent:
                     print("DEBUG: Game is waiting for consent, processing text input.")
                     consented_traps = utils.parse_consent_from_text(player_input, self.ai_restrictions)
@@ -737,6 +754,7 @@ class Adventure(commands.Cog):
                     await self._start_initial_scenario(message.channel, game)
                     return
                 else:
+                    action_to_process = choice_text if is_choice_number else player_input
                     print(f"DEBUG: Player submitted custom text action or choice: '{action_to_process}'")
                     await self._process_player_action(game, action_to_process)
                     return

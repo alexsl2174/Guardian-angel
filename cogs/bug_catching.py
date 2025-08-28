@@ -466,7 +466,13 @@ class Bugbook(commands.Cog):
         
         roll = random.random()
 
-        if roll < tree_cog.SHINY_FOUND_CHANCE:
+        # Check for active shiny buff
+        if tree_cog.active_shiny_buff and utils.now() < tree_cog.active_shiny_buff['expires_at']:
+            base_shiny_chance = tree_cog.active_shiny_buff['percentage_increase'] / 100
+        else:
+            base_shiny_chance = self.SHINY_FOUND_CHANCE
+
+        if roll < base_shiny_chance:
             caught_bug_info = random.choice(self.INSECT_LIST)
             
             embed = discord.Embed(
@@ -480,7 +486,7 @@ class Bugbook(commands.Cog):
             message = await interaction.followup.send(embed=embed, view=view)
             view.message = message
         
-        elif roll < tree_cog.SHINY_FOUND_CHANCE + regular_catch_chance_with_bonus:
+        elif roll < base_shiny_chance + regular_catch_chance_with_bonus:
             caught_bug_info = random.choice(self.INSECT_LIST)
             caught_bug_name = caught_bug_info['name']
             caught_bug_xp = caught_bug_info['xp']
@@ -513,6 +519,12 @@ class Bugbook(commands.Cog):
                 await interaction.followup.send(f"**{interaction.user.mention}** tried to catch a bug with their **{equipped_net_name}**, but it got away! Their net has **broken!** You must purchase and equip a new net.")
             else:
                 await interaction.followup.send(f"**{interaction.user.mention}** tried to catch a bug with their **{equipped_net_name}**, but it got away! Their net has **{equipped_net['durability']}** durability left.")
+        
+        # Bee Decay Logic: Remove a bee with every catch attempt
+        beehive_state = tree_state.get('beehive', {})
+        if beehive_state.get('is_placed') and beehive_state.get('bee_count', 0) > 0:
+            tree_state['beehive']['bee_count'] -= 1
+            tree_cog.save_tree_state(interaction.guild.id, tree_state)
         
         tree_cog.update_last_used_time(interaction.user.id, "bug_catch")
 

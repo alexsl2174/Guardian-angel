@@ -28,9 +28,10 @@ SHINY_FOUND_CHANCE = 0.05
 SHINY_CATCH_SUCCESS_CHANCE = 0.07 # 7% success rate per attempt
 
 HONEY_PER_BEE_PER_HOUR = 1
-BEE_DECAY_CHANCE = 0.05 # 5% chance per bug catch attempt for one bee to fly away
 MAX_BEEHIVE_CAPACITY = 100
 MIN_HIVE_HEIGHT_REQUIRED = 15
+HONEY_BUFF_DURATION_MULTIPLIER = 10 # 10 minutes per honey
+HONEY_BUFF_INCREASE_MULTIPLIER = 0.005 # 0.5% increase per honey
 
 def is_staff():
     """A custom decorator check to see if the user has a Staff role ID."""
@@ -64,8 +65,10 @@ class TreeGame(commands.Cog):
         self.SHINY_FOUND_CHANCE = SHINY_FOUND_CHANCE
         self.SHINY_CATCH_SUCCESS_CHANCE = SHINY_CATCH_SUCCESS_CHANCE
         self.HONEY_PER_BEE_PER_HOUR = HONEY_PER_BEE_PER_HOUR
-        self.BEE_DECAY_CHANCE = BEE_DECAY_CHANCE
         self.notification_task = None
+        
+        # New variable to track the active shiny buff
+        self.active_shiny_buff = None
         
         # Start the notification system
         self.bot.loop.create_task(self.schedule_initial_notification())
@@ -303,68 +306,55 @@ class TreeGame(commands.Cog):
             await interaction.edit_original_response(embed=embed, view=self)
 
     class TreeGameView(View):
-        def __init__(self, cog, interaction: discord.Interaction, tree_state: dict):
-            # Use a normal timeout instead of None to prevent persistent view issues
-            super().__init__(timeout=300)  # 5 minute timeout
+        def __init__(self, cog, tree_state: dict):
+            super().__init__(timeout=None)
             self.cog = cog
-            self.interaction = interaction
             self.tree_state = tree_state
             
-            # Remove custom_ids to avoid persistent view complications
-            water_button = Button(label="Water", style=discord.ButtonStyle.primary, emoji="💧")
-            water_button.callback = self.water_callback
-            self.add_item(water_button)
+            self.water_button = Button(label="Water", style=discord.ButtonStyle.primary, emoji="💧")
+            self.water_button.callback = self.water_callback
+            self.add_item(self.water_button)
 
-            bug_catch_button = Button(label="Catch a Bug", style=discord.ButtonStyle.secondary, emoji="🪲")
-            bug_catch_button.callback = self.bug_catch_callback
-            self.add_item(bug_catch_button)
+            self.bug_catch_button = Button(label="Catch a Bug", style=discord.ButtonStyle.secondary, emoji="🪲")
+            self.bug_catch_button.callback = self.bug_catch_callback
+            self.add_item(self.bug_catch_button)
             
-            recycle_button = Button(label="Recycle", style=discord.ButtonStyle.blurple, emoji="♻️")
-            recycle_button.callback = self.recycle_callback
-            self.add_item(recycle_button)
+            self.recycle_button = Button(label="Recycle", style=discord.ButtonStyle.blurple, emoji="♻️")
+            self.recycle_button.callback = self.recycle_callback
+            self.add_item(self.recycle_button)
             
-            collect_honey_button = Button(label="Collect Honey", style=discord.ButtonStyle.success, emoji="🍯")
-            collect_honey_button.callback = self.collect_honey_callback
-            self.add_item(collect_honey_button)
+            self.collect_honey_button = Button(label="Collect Honey", style=discord.ButtonStyle.success, emoji="🍯")
+            self.collect_honey_button.callback = self.collect_honey_callback
+            self.add_item(self.collect_honey_button)
             
             # Disable honey button if there is no beehive or no bees
             beehive_state = tree_state.get('beehive', {})
             has_beehive = beehive_state.get('is_placed', False)
             has_bees = beehive_state.get('bee_count', 0) > 0
-            collect_honey_button.disabled = not has_beehive or not has_bees
+            self.collect_honey_button.disabled = not has_beehive or not has_bees
 
         async def water_callback(self, interaction: discord.Interaction):
-            # DEFER IMMEDIATELY to prevent timeout
             await interaction.response.defer(ephemeral=True)
-            
             server_id = interaction.guild.id
             tree_state = self.cog.get_tree_state(server_id)
-            
-            user_cooldown = self.cog.get_user_cooldown(tree_state['height'])
-            tree_cooldown = self.cog.get_tree_cooldown(tree_state['height'])
-            
             user_cooldown_expired = self.cog.is_cooldown_expired(interaction.user.id, "water", tree_state['height'])
-            tree_cooldown_expired = (utils.now() - datetime.datetime.fromisoformat(tree_state['last_watered_timestamp'])).total_seconds() > tree_cooldown
+            tree_cooldown_expired = (utils.now() - datetime.datetime.fromisoformat(tree_state['last_watered_timestamp'])).total_seconds() > self.cog.get_tree_cooldown(tree_state['height'])
 
-            # Check for cooldowns
             if not user_cooldown_expired or not tree_cooldown_expired:
                 last_used_time = self.cog.COOLDOWNS.get("water", {}).get(str(interaction.user.id))
                 message = ""
-
                 if not user_cooldown_expired:
                     time_diff = utils.now() - datetime.datetime.fromisoformat(last_used_time)
-                    remaining_time = user_cooldown - time_diff.total_seconds()
+                    remaining_time = self.cog.get_user_cooldown(tree_state['height']) - time_diff.total_seconds()
                     formatted_time = self.cog._format_time_difference(remaining_time)
                     message = f"You have already watered the tree recently. You can try again in **{formatted_time}**."
                 elif not tree_cooldown_expired:
                     time_diff = utils.now() - datetime.datetime.fromisoformat(tree_state['last_watered_timestamp'])
-                    remaining_time = tree_cooldown - time_diff.total_seconds()
+                    remaining_time = self.cog.get_tree_cooldown(tree_state['height']) - time_diff.total_seconds()
                     formatted_time = self.cog._format_time_difference(remaining_time)
                     message = f"The tree is already wet! You can water it again in **{formatted_time}**."
-                
                 return await interaction.followup.send(message, ephemeral=True)
             
-            # Check if this is the user's first time watering and give them a net
             user_inventory = load_inventory(interaction.user.id)
             if not user_inventory.get('nets'):
                 user_inventory['nets'] = [{"name": "Regular Net", "durability": 10}]
@@ -379,48 +369,31 @@ class TreeGame(commands.Cog):
             tree_state['last_watered_timestamp'] = utils.now().isoformat()
             self.cog.save_tree_state(server_id, tree_state)
             self.cog.update_last_used_time(interaction.user.id, "water")
+            await interaction.message.edit(embed=await self.cog.get_tree_embed(interaction), view=self)
 
         async def bug_catch_callback(self, interaction: discord.Interaction):
-            # DEFER IMMEDIATELY to prevent timeout
             await interaction.response.defer(ephemeral=True)
-            
             server_id = interaction.guild.id
             tree_state = self.cog.get_tree_state(server_id)
-            
-            # Check for user cooldown for bug catching first
             if not self.cog.is_cooldown_expired(interaction.user.id, "bug_catch", tree_state['height']):
                 time_diff = utils.now() - datetime.datetime.fromisoformat(self.cog.COOLDOWNS.get("bug_catch", {}).get(str(interaction.user.id)))
                 remaining_time = self.cog.get_user_cooldown(tree_state['height']) - time_diff.total_seconds()
                 formatted_time = self.cog._format_time_difference(remaining_time)
                 return await interaction.followup.send(f"You have already performed an action recently. You can try again in **{formatted_time}**.", ephemeral=True)
-
-            # Check tree height before bug catching
             if tree_state['height'] < 10:
                 return await interaction.followup.send("The tree is too small to have bugs! Grow it to size 10 first.", ephemeral=True)
-            
-            # Get a reference to the Bugbook cog
             bugbook_cog = self.cog.bot.get_cog('Bugbook')
             if not bugbook_cog:
                 return await interaction.followup.send("❌ An error occurred: Bugbook cog is not loaded.", ephemeral=True)
-
-            # Call the new catch_bug method in the Bugbook cog
             await bugbook_cog.catch_bug(interaction, self.cog, tree_state)
-            
-            # After a successful bug catch attempt, check for bee decay
-            if tree_state['beehive']['is_placed'] and tree_state['beehive']['bee_count'] > 0:
-                if random.random() < self.cog.BEE_DECAY_CHANCE:
-                    tree_state['beehive']['bee_count'] -= 1
-                    self.cog.save_tree_state(server_id, tree_state)
-                    # For a full-featured bot, you might send a small notification about a bee flying away.
+            await interaction.message.edit(embed=await self.cog.get_tree_embed(interaction), view=self)
 
         async def recycle_callback(self, interaction: discord.Interaction):
             await interaction.response.defer(ephemeral=True)
             user_id = interaction.user.id
             user_inventory = load_inventory(user_id)
-            
             apples_needed = 10
             current_apples = user_inventory.get('items', {}).get('apple', 0)
-            
             if current_apples >= apples_needed:
                 user_inventory['items']['apple'] = current_apples - apples_needed
                 user_inventory['items']['compost'] = user_inventory.get('items', {}).get('compost', 0) + 1
@@ -434,163 +407,199 @@ class TreeGame(commands.Cog):
             server_id = interaction.guild.id
             tree_state = self.cog.get_tree_state(server_id)
             beehive_state = tree_state['beehive']
-            
             if not beehive_state['is_placed'] or beehive_state['bee_count'] <= 0:
                 return await interaction.followup.send("❌ There is no beehive or no bees to collect honey from!", ephemeral=True)
-                
             last_collected_time = datetime.datetime.fromisoformat(beehive_state['last_honey_collected'])
             time_since_last_collection = (utils.now() - last_collected_time).total_seconds()
-            
-            # Calculate honey produced
             honey_produced = math.floor((time_since_last_collection / 3600) * beehive_state['bee_count'] * self.cog.HONEY_PER_BEE_PER_HOUR)
-            
             if honey_produced <= 0:
                 return await interaction.followup.send("The bees haven't produced any new honey yet. Check back later!", ephemeral=True)
-            
             user_inventory = load_inventory(interaction.user.id)
             user_inventory['items']['honey'] = user_inventory.get('items', {}).get('honey', 0) + honey_produced
             save_inventory(interaction.user.id, user_inventory)
-            
-            # Update the last collection timestamp
             beehive_state['last_honey_collected'] = utils.now().isoformat()
             self.cog.save_tree_state(server_id, tree_state)
-            
             await interaction.followup.send(f"🍯 You collected **{honey_produced}** honey! You now have **{user_inventory['items']['honey']}** honey in total.", ephemeral=True)
+            await interaction.message.edit(embed=await self.cog.get_tree_embed(interaction), view=self)
 
-    @app_commands.command(name="tree", description="Interact with the server's Tree of Life.")
-    async def tree(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        
+    async def get_tree_embed(self, interaction: discord.Interaction):
         server_id = interaction.guild.id
         tree_state = self.get_tree_state(server_id)
         tree_size = tree_state['height']
-        
-        # Calculate dynamic cooldowns
         tree_cooldown = self.get_tree_cooldown(tree_size)
-        
-        # Calculate time remaining for the tree cooldown
         time_since_watered = (utils.now() - datetime.datetime.fromisoformat(tree_state['last_watered_timestamp'])).total_seconds()
         remaining_tree_cooldown = tree_cooldown - time_since_watered
-        
         if remaining_tree_cooldown > 0:
             cooldown_end_time = datetime.datetime.fromisoformat(tree_state['last_watered_timestamp']) + datetime.timedelta(seconds=tree_cooldown)
             cooldown_end_timestamp = int(cooldown_end_time.timestamp())
             water_status = f"The tree is currently hydrated. You can water it again <t:{cooldown_end_timestamp}:R>."
         else:
             water_status = "The tree is ready to be watered! 💧"
-        
-        # Get tree image
         image_file = self._get_tree_image(tree_state)
-        
-        # Create embed
         embed = discord.Embed(
             title=f"The Server's Tree of Life",
             description=f"The tree is currently size **{tree_size}**.\n\n{water_status}",
             color=discord.Color.green()
         )
         embed.set_image(url=f"attachment://{image_file.filename}")
-        
         beehive_status = "Not Placed"
         beehive_state = tree_state.get('beehive', {})
         if beehive_state.get('is_placed'):
             bee_count = beehive_state.get('bee_count', 0)
             beehive_status = f"Placed! 🍯 There are **{bee_count}** bees!"
-        
         embed.add_field(name="Beehive", value=beehive_status, inline=False)
-        
-        # Create simple view with buttons
-        view = self.TreeGameView(self, interaction, tree_state)
-        
-        await interaction.followup.send(
-            file=image_file, 
-            embed=embed, 
-            view=view
-        )
-    
+        return embed
+
+    @app_commands.command(name="tree", description="Interact with the server's Tree of Life.")
+    async def tree(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        server_id = interaction.guild.id
+        tree_state = self.get_tree_state(server_id)
+        embed = await self.get_tree_embed(interaction)
+        view = self.TreeGameView(self, tree_state)
+        file = self._get_tree_image(tree_state)
+        await interaction.followup.send(file=file, embed=embed, view=view)
+
     @app_commands.command(name="compost", description="Reduce the Tree of Life's cooldown using compost.")
     async def compost(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         user_id = interaction.user.id
         user_inventory = load_inventory(user_id)
-        
         current_compost = user_inventory.get('items', {}).get('compost', 0)
-        
         if current_compost >= 1:
             user_inventory['items']['compost'] = current_compost - 1
             save_inventory(user_id, user_inventory)
-            
             server_id = interaction.guild.id
             tree_state = self.get_tree_state(server_id)
-            
             last_watered_time = datetime.datetime.fromisoformat(tree_state['last_watered_timestamp'])
-            
-            # --- FIX: Subtract COMPOST_REDUCTION_SECONDS instead of adding them ---
             new_last_watered_time = last_watered_time - datetime.timedelta(seconds=self.COMPOST_REDUCTION_SECONDS)
-            # --- END OF FIX ---
-            
-            # Ensure the new time does not go past the current time.
             if new_last_watered_time > utils.now():
                 tree_state['last_watered_timestamp'] = utils.now().isoformat()
             else:
                 tree_state['last_watered_timestamp'] = new_last_watered_time.isoformat()
-            
             self.save_tree_state(server_id, tree_state)
-            
             await interaction.followup.send(f"✅ You have used 1 compost to reduce the tree's cooldown by 30 minutes. You have **{user_inventory['items']['compost']}** compost remaining.", ephemeral=True)
         else:
             await interaction.followup.send("❌ You don't have any compost to use!", ephemeral=True)
     
-    @app_commands.command(name="beehive", description="Set up a beehive or add bees to it.")
-    @app_commands.describe(add_bees="The number of bees you want to add. Leave blank to set up a new beehive.")
-    async def beehive(self, interaction: discord.Interaction, add_bees: Optional[int] = None):
+    @app_commands.command(name="honeyshinybuff", description="Activate a temporary shiny bug catch buff (Staff only).")
+    @app_commands.describe(
+        percentage_increase="The percentage increase in shiny chance (e.g., 5.0 for 5%).",
+        duration_minutes="The duration of the buff in minutes."
+    )
+    @is_staff()
+    async def honeyshinybuff(self, interaction: discord.Interaction, percentage_increase: float, duration_minutes: int):
+        await interaction.response.defer()
+        
+        if percentage_increase <= 0 or duration_minutes <= 0:
+            return await interaction.followup.send("❌ Percentage increase and duration must be positive values.", ephemeral=True)
+            
+        expires_at = utils.now() + datetime.timedelta(minutes=duration_minutes)
+        self.active_shiny_buff = {
+            'percentage_increase': percentage_increase,
+            'expires_at': expires_at
+        }
+        
+        channel = interaction.guild.get_channel(utils.TREE_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="✨ Shiny Buff Activated!",
+                description=f"A staff member has activated a shiny bug catch buff! The chance of finding a shiny bug has been increased by **{percentage_increase:.2f}%** for the next **{duration_minutes}** minutes! Go get 'em! 🪲",
+                color=discord.Color.gold()
+            )
+            await channel.send(embed=embed)
+        else:
+            await interaction.followup.send(f"❌ Could not find the Tree of Life channel to post the public announcement.", ephemeral=True)
+        
+        await interaction.followup.send(f"✅ Shiny buff activated successfully. The chance of finding a shiny bug has been increased by {percentage_increase:.2f}% for {duration_minutes} minutes.", ephemeral=True)
+
+    beehive_group = app_commands.Group(name="beehive", description="Interact with the beehive on the Tree of Life.")
+
+    @beehive_group.command(name="place", description="Place a beehive on the Tree of Life.")
+    async def place_beehive(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         user_inventory = load_inventory(interaction.user.id)
         server_id = interaction.guild.id
         tree_state = self.get_tree_state(server_id)
-
-        # Scenario 1: User wants to add bees
-        if add_bees is not None:
-            if not tree_state['beehive']['is_placed']:
-                return await interaction.followup.send("❌ There is no beehive placed on the Tree of Life. You need to set one up first.", ephemeral=True)
-            
-            if add_bees <= 0:
-                return await interaction.followup.send("Please specify a number greater than 0 to add bees.", ephemeral=True)
-
-            if add_bees > user_inventory.get('items', {}).get('bees', 0):
-                return await interaction.followup.send(f"❌ You don't have enough bees! You have **{user_inventory.get('items', {}).get('bees', 0)}** bees, but you tried to add **{add_bees}**.", ephemeral=True)
-
-            new_bee_count = tree_state['beehive']['bee_count'] + add_bees
-            if new_bee_count > MAX_BEEHIVE_CAPACITY:
-                return await interaction.followup.send(f"❌ The beehive can only hold a maximum of **{MAX_BEEHIVE_CAPACITY}** bees! You tried to add too many.", ephemeral=True)
-            
-            user_inventory['items']['bees'] -= add_bees
-            tree_state['beehive']['bee_count'] = new_bee_count
-            
-            save_inventory(interaction.user.id, user_inventory)
-            self.save_tree_state(server_id, tree_state)
-            
-            await interaction.followup.send(f"✅ You have added **{add_bees}** bees to the beehive. There are now **{new_bee_count}** bees in the hive!", ephemeral=False)
         
-        # Scenario 2: User wants to set up a beehive
-        else:
-            if tree_state['height'] < MIN_HIVE_HEIGHT_REQUIRED:
-                return await interaction.followup.send(f"❌ The Tree of Life must be at least size {MIN_HIVE_HEIGHT_REQUIRED} to support a beehive.", ephemeral=True)
-                
-            if tree_state['beehive']['is_placed']:
-                return await interaction.followup.send("❌ There is already a beehive on the Tree of Life.", ephemeral=True)
-                
-            if user_inventory.get('items', {}).get('beehive', 0) < 1:
-                return await interaction.followup.send("❌ You need to purchase a beehive first to add it to the tree.", ephemeral=True)
+        if tree_state['height'] < MIN_HIVE_HEIGHT_REQUIRED:
+            return await interaction.followup.send(f"❌ The Tree of Life must be at least size {MIN_HIVE_HEIGHT_REQUIRED} to support a beehive.", ephemeral=True)
+        if tree_state['beehive']['is_placed']:
+            return await interaction.followup.send("❌ There is already a beehive on the Tree of Life.", ephemeral=True)
+        if user_inventory.get('items', {}).get('beehive', 0) < 1:
+            return await interaction.followup.send("❌ You need to purchase a beehive first to add it to the tree.", ephemeral=True)
 
-            user_inventory['items']['beehive'] -= 1
-            tree_state['beehive']['is_placed'] = True
-            tree_state['beehive']['last_honey_collected'] = utils.now().isoformat()
+        user_inventory['items']['beehive'] -= 1
+        tree_state['beehive']['is_placed'] = True
+        tree_state['beehive']['last_honey_collected'] = utils.now().isoformat()
+        
+        save_inventory(interaction.user.id, user_inventory)
+        self.save_tree_state(server_id, tree_state)
+        
+        await interaction.followup.send("✅ You have successfully placed a beehive on the Tree of Life! You can now add bees to it with `/beehive add_bees`.", ephemeral=False)
+
+    @beehive_group.command(name="add_bees", description="Add bees to the beehive.")
+    @app_commands.describe(amount="The number of bees you want to add.")
+    async def add_bees_to_beehive(self, interaction: discord.Interaction, amount: int):
+        await interaction.response.defer(ephemeral=True)
+        user_inventory = load_inventory(interaction.user.id)
+        server_id = interaction.guild.id
+        tree_state = self.get_tree_state(server_id)
+        
+        if not tree_state['beehive']['is_placed']:
+            return await interaction.followup.send("❌ There is no beehive placed on the Tree of Life. You need to set one up first.", ephemeral=True)
+        if amount is None or amount <= 0:
+            return await interaction.followup.send("Please specify a positive number of bees to add.", ephemeral=True)
+        if amount > user_inventory.get('items', {}).get('bees', 0):
+            return await interaction.followup.send(f"❌ You don't have enough bees! You have **{user_inventory.get('items', {}).get('bees', 0)}** bees, but you tried to add **{amount}**.", ephemeral=True)
+        
+        new_bee_count = tree_state['beehive']['bee_count'] + amount
+        if new_bee_count > MAX_BEEHIVE_CAPACITY:
+            return await interaction.followup.send(f"❌ The beehive can only hold a maximum of **{MAX_BEEHIVE_CAPACITY}** bees! You tried to add too many.", ephemeral=True)
+        
+        user_inventory['items']['bees'] -= amount
+        tree_state['beehive']['bee_count'] = new_bee_count
+        
+        save_inventory(interaction.user.id, user_inventory)
+        self.save_tree_state(server_id, tree_state)
+        
+        await interaction.followup.send(f"✅ You have added **{amount}** bees to the beehive. There are now **{new_bee_count}** bees in the hive!", ephemeral=False)
             
-            save_inventory(interaction.user.id, user_inventory)
-            self.save_tree_state(server_id, tree_state)
-            
-            await interaction.followup.send("✅ You have successfully placed a beehive on the Tree of Life! You can now add bees to it with `/beehive add_bees <amount>`.", ephemeral=False)
-            
+    @beehive_group.command(name="use_honey_for_buff", description="Use honey to temporarily increase the shiny bug chance for the server.")
+    @app_commands.describe(amount="The amount of honey you want to use.")
+    async def use_honey_for_buff(self, interaction: discord.Interaction, amount: int):
+        await interaction.response.defer(ephemeral=True)
+        user_inventory = load_inventory(interaction.user.id)
+        
+        if amount is None or amount <= 0:
+            return await interaction.followup.send("Please specify a positive amount of honey to use.", ephemeral=True)
+        if user_inventory.get('items', {}).get('honey', 0) < amount:
+            return await interaction.followup.send(f"❌ You don't have enough honey! You have **{user_inventory.get('items', {}).get('honey', 0)}** honey.", ephemeral=True)
+        
+        user_inventory['items']['honey'] -= amount
+        save_inventory(interaction.user.id, user_inventory)
+        
+        duration_minutes = amount * HONEY_BUFF_DURATION_MULTIPLIER
+        percentage_increase = amount * HONEY_BUFF_INCREASE_MULTIPLIER * 100
+        
+        self.active_shiny_buff = {
+            'percentage_increase': percentage_increase,
+            'expires_at': utils.now() + datetime.timedelta(minutes=duration_minutes)
+        }
+        
+        channel = interaction.guild.get_channel(utils.TREE_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="✨ Shiny Buff Activated!",
+                description=f"**{interaction.user.display_name}** has used **{amount}** honey to increase the server's shiny bug chance by **{percentage_increase:.2f}%** for the next **{duration_minutes}** minutes! Go get 'em! 🪲",
+                color=discord.Color.gold()
+            )
+            await channel.send(embed=embed)
+        else:
+            await interaction.followup.send(f"❌ Could not find the Tree of Life channel to post the public announcement.", ephemeral=True)
+        
+        await interaction.followup.send(f"✅ Shiny buff activated successfully. The chance of finding a shiny bug has been increased by {percentage_increase:.2f}% for {duration_minutes} minutes.", ephemeral=True)
+    
     @app_commands.command(name="resettreecooldowns", description="Reset cooldowns for the Tree of Life (Staff only).")
     @is_staff()
     async def resettreecooldowns(self, interaction: discord.Interaction):
@@ -608,7 +617,7 @@ class TreeGame(commands.Cog):
         utils.save_tree_game_data(game_data)
         
         await interaction.followup.send("The Tree of Life's cooldowns have been reset. You can now water the tree again.", ephemeral=True)
-    
+
     @resettreecooldowns.error
     async def resettreecooldowns_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CheckFailure):

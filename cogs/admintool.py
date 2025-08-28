@@ -129,22 +129,22 @@ class CurrencyGroup(app_commands.Group):
     async def currency_add(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         await interaction.response.defer(ephemeral=True)
         if amount <= 0:
-            await interaction.followup.send("Amount must be a positive number.", ephemeral=True)
+            await interaction.followup.send("Amount must be a positive number.", ephemeral=False)
             return
         
         utils.update_user_money(member.id, amount)
-        await interaction.followup.send(f"Successfully added {amount} coins to {member.mention}'s balance.", ephemeral=True)
+        await interaction.followup.send(f"Successfully added {amount} coins to {member.mention}'s balance.", ephemeral=False)
 
     @app_commands.command(name="remove", description="Removes currency from a user's balance.")
     @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     async def currency_remove(self, interaction: discord.Interaction, member: discord.Member, amount: int):
         await interaction.response.defer(ephemeral=True)
         if amount <= 0:
-            await interaction.followup.send("Amount must be a positive number.", ephemeral=True)
+            await interaction.followup.send("Amount must be a positive number.", ephemeral=False)
             return
         
         utils.update_user_money(member.id, -amount)
-        await interaction.followup.send(f"Successfully removed {amount} coins from {member.mention}'s balance.", ephemeral=True)
+        await interaction.followup.send(f"Successfully removed {amount} coins from {member.mention}'s balance.", ephemeral=False)
 
 class EmbedConfirmView(ui.View):
     def __init__(self, user_id):
