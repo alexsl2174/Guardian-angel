@@ -203,5 +203,29 @@ class ModmailCore(commands.Cog):
         else:
             await interaction.response.send_message("This is not a valid ModMail thread.", ephemeral=True)
 
+    @app_commands.command(name="reveal", description="Reveals the identity of the user who opened this anonymous ticket.")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_channels=True)
+    async def reveal_slash(self, interaction: discord.Interaction):
+        valid_thread_ids = [ticket.get('thread_id') for ticket in self.active_tickets.values() if isinstance(ticket, dict)]
+        if interaction.channel.type in [discord.ChannelType.private_thread, discord.ChannelType.public_thread] and interaction.channel.id in valid_thread_ids:
+            active_ticket_data = next((tid for tid in self.active_tickets.values() if isinstance(tid, dict) and tid.get('thread_id') == interaction.channel.id), None)
+            
+            if active_ticket_data and active_ticket_data.get('is_anon'):
+                user_id = next((uid for uid, tid in self.active_tickets.items() if isinstance(tid, dict) and tid.get('thread_id') == interaction.channel.id), None)
+                if user_id:
+                    user = await self.bot.fetch_user(int(user_id))
+                    if user:
+                        await interaction.response.send_message(f"This thread was opened by {user.mention}.", ephemeral=False)
+                    else:
+                        await interaction.response.send_message("Could not find the user for this ticket.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("The user for this ticket could not be found in the bot's records.", ephemeral=True)
+            else:
+                await interaction.response.send_message("This is not an anonymous ticket.", ephemeral=True)
+        else:
+            await interaction.response.send_message("This command can only be used in a ModMail thread.", ephemeral=True)
+
+
 async def setup(bot):
     await bot.add_cog(ModmailCore(bot))
