@@ -34,6 +34,11 @@ class ModmailCore(commands.Cog):
             is_anonymous_start = message.content.startswith("/anon")
             message_content = message.content
 
+            # Check for existing anonymous ticket before processing
+            if is_anonymous_start and active_ticket_data and active_ticket_data.get('is_anon'):
+                await message.author.send("You already have an active anonymous ticket. Please close it before opening another one.")
+                return
+
             if is_anonymous_start:
                 message_content = message.content.replace("/anon", "", 1).strip()
                 if not message_content:
