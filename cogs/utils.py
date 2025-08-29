@@ -40,6 +40,10 @@ ASSETS_DIR = "assets"
 if not os.path.exists(ASSETS_DIR):
     os.makedirs(ASSETS_DIR)
 
+CHANNEL_IDS = {
+    "modmail_channel_id": 1410774982916571239,
+    "modmail_notification_channel_id": 1410774982916571239
+}
 
 # Local file paths for images
 CONFIG_FILE = 'timed_roles.json'
@@ -164,6 +168,27 @@ def save_sorry_jar_data(data):
 def save_booster_rewards(data: Dict[str, str]):
     save_data(data, BOOSTER_REWARDS_FILE)
 
+def load_json_file(file_path: str, default_value: Any):
+    if not os.path.exists(file_path):
+        return default_value
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"JSON Decode Error in {file_path}: {e}. Returning default value.")
+        return default_value
+    except Exception as e:
+        print(f"Error loading data from {file_path}: {e}. Returning default value.")
+        return default_value
+
+def save_json_file(file_path: str, data: Any):
+    try:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving data to {file_path}: {e}")
+
 def load_data(file_path: str, default_value: Any = None):
     """Loads data from a JSON file, returning a default value if the file is not found or is corrupted."""
     if not os.path.exists(file_path):
@@ -190,8 +215,6 @@ def save_data(data: Any, file_path: str):
 bot_config = load_data(BOT_CONFIG_FILE, {})
 
 # --- Global Configuration Constants (Reloaded via reload_globals) ---
-modmail_notification_channel_id = None
-modmail_channel_id = None
 QOTD_ROLE_ID = None
 MAIN_GUILD_ID = None
 TEST_CHANNEL_ID = None
@@ -244,8 +267,6 @@ async def channel_id_name_autocomplete(interaction: discord.Interaction, current
     # Explicitly list all channel ID keys to include in the autocomplete
     channel_keys = [
         "TEST_CHANNEL_ID",
-        "modmail_notification_channel_id",
-        "modmail_channel_id",
         "CHAT_REVIVE_CHANNEL_ID",
         "ADVENTURE_CHANNEL_ID",
         "DAILY_COMMENTS_CHANNEL_ID",
@@ -314,7 +335,7 @@ def update_dynamic_role(role_name, role_id):
     reload_globals()
 
 def reload_globals():
-    global MAIN_GUILD_ID, TEST_CHANNEL_ID, PLAYER_ROLE_ID, MODMAIL_CHANNEL_ID, MODMAIL_NOTIFICATION_CHANNEL_ID, ADVENTURE_MAIN_CHANNEL_ID, CHAT_REVIVE_CHANNEL_ID, DAILY_COMMENTS_CHANNEL_ID, SELF_ROLES_CHANNEL_ID, SINNER_CHAT_CHANNEL_ID, BUMDAY_MONDAY_CHANNEL_ID, TITS_OUT_TUESDAY_CHANNEL_ID, WET_WEDNESDAY_CHANNEL_ID, FURBABY_THURSDAY_CHANNEL_ID, FRISKY_FRIDAY_CHANNEL_ID, SELFIE_SATURDAY_CHANNEL_ID, SLUTTY_SUNDAY_CHANNEL_ID, ANAGRAM_CHANNEL_ID, BUMP_BATTLE_CHANNEL_ID, ANNOUNCEMENTS_CHANNEL_ID, VOTE_CHANNEL_ID, VOTE_COOLDOWN_HOURS, ROLE_IDS, CHAT_REVIVE_ROLE_ID, ANNOUNCEMENTS_ROLE_ID, MOD_ROLE_ID, TIMED_CHANNELS, DAILY_POSTS_CHANNELS, TREE_CHANNEL_ID, COUNTING_CHANNEL_ID, REVIVE_INTERVAL_HOURS, QOTD_CHANNEL_ID, QOTD_ROLE_ID, CHECKIN_CHANNEL_ID, DAILY_MESSAGE_REWARD_CHANNEL_ID, BOOSTER_REWARD_CHANNEL_ID
+    global MAIN_GUILD_ID, TEST_CHANNEL_ID, PLAYER_ROLE_ID, ADVENTURE_MAIN_CHANNEL_ID, CHAT_REVIVE_CHANNEL_ID, DAILY_COMMENTS_CHANNEL_ID, SELF_ROLES_CHANNEL_ID, SINNER_CHAT_CHANNEL_ID, BUMDAY_MONDAY_CHANNEL_ID, TITS_OUT_TUESDAY_CHANNEL_ID, WET_WEDNESDAY_CHANNEL_ID, FURBABY_THURSDAY_CHANNEL_ID, FRISKY_FRIDAY_CHANNEL_ID, SELFIE_SATURDAY_CHANNEL_ID, SLUTTY_SUNDAY_CHANNEL_ID, ANAGRAM_CHANNEL_ID, BUMP_BATTLE_CHANNEL_ID, ANNOUNCEMENTS_CHANNEL_ID, VOTE_CHANNEL_ID, VOTE_COOLDOWN_HOURS, ROLE_IDS, CHAT_REVIVE_ROLE_ID, ANNOUNCEMENTS_ROLE_ID, MOD_ROLE_ID, TIMED_CHANNELS, DAILY_POSTS_CHANNELS, TREE_CHANNEL_ID, COUNTING_CHANNEL_ID, REVIVE_INTERVAL_HOURS, QOTD_CHANNEL_ID, QOTD_ROLE_ID, CHECKIN_CHANNEL_ID, DAILY_MESSAGE_REWARD_CHANNEL_ID, BOOSTER_REWARD_CHANNEL_ID
 
     bot_config_reloaded = load_data(BOT_CONFIG_FILE, {})
 
@@ -324,8 +345,6 @@ def reload_globals():
     DAILY_MESSAGE_REWARD_CHANNEL_ID = bot_config.get("DAILY_MESSAGE_REWARD_CHANNEL_ID", None)
     BOOSTER_REWARD_CHANNEL_ID = bot_config.get("BOOSTER_REWARD_CHANNEL_ID", None)
     QOTD_ROLE_ID = bot_config_reloaded.get("QOTD_ROLE_ID", None)
-    MODMAIL_CHANNEL_ID = bot_config_reloaded.get("modmail_channel_id")
-    MODMAIL_NOTIFICATION_CHANNEL_ID = bot_config_reloaded.get("modmail_notification_channel_id")
     MAIN_GUILD_ID = bot_config_reloaded.get("MAIN_GUILD_ID", None)
     TEST_CHANNEL_ID = bot_config_reloaded.get("TEST_CHANNEL_ID", 1403900596020580523)
     CHAT_REVIVE_CHANNEL_ID = bot_config_reloaded.get("CHAT_REVIVE_CHANNEL_ID", TEST_CHANNEL_ID)
@@ -349,8 +368,6 @@ def reload_globals():
     TREE_CHANNEL_ID = bot_config_reloaded.get("TREE_CHANNEL_ID", TEST_CHANNEL_ID)
     COUNTING_CHANNEL_ID = bot_config_reloaded.get("COUNTING_CHANNEL_ID", TEST_CHANNEL_ID)
     REVIVE_INTERVAL_HOURS = bot_config_reloaded.get("REVIVE_INTERVAL_HOURS", 6)
-    MODMAIL_CHANNEL_ID = bot_config_reloaded.get("modmail_channel_id"),
-    modmail_notification_channel_id = bot_config_reloaded.get("modmail_notification_channel_id")
     BUMDAY_MONDAY_CHANNEL_ID = bot_config_reloaded.get("BUMDAY_MONDAY_CHANNEL_ID", TEST_CHANNEL_ID)
     TITS_OUT_TUESDAY_CHANNEL_ID = bot_config_reloaded.get("TITS_OUT_TUESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
     WET_WEDNESDAY_CHANNEL_ID = bot_config_reloaded.get("WET_WEDNESDAY_CHANNEL_ID", TEST_CHANNEL_ID)
