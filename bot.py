@@ -15,7 +15,6 @@ import traceback
 from typing import Optional
 import io
 
-
 # Load environment variables from the .env file
 load_dotenv()
 
@@ -42,6 +41,7 @@ intents.reactions = True
 intents.members = True
 intents.guilds = True
 intents.presences = True
+intents.dm_messages = True
 
 # We set the command_prefix to a character that won't be used,
 # as we are only using slash commands. This prevents the bot from
@@ -55,12 +55,14 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     print(f'Bot connected as {bot.user} (ID: {bot.user.id})')
-    print("Carl AI is ready!")
+    print("Guardian Angel is ready!")
 
     bot.owner_id = int(os.getenv("DISCORD_BOT_OWNER_ID")) if os.getenv("DISCORD_BOT_OWNER_ID") else None
 
     cogs_to_load = [
         "cogs.economy",
+        "cogs.games",
+        "cogs.modmail_core",
         "cogs.counting_game",
         "cogs.fun_commands",
         "cogs.pins",
@@ -74,7 +76,7 @@ async def on_ready():
         "cogs.ai_features",
         "cogs.admintool"
     ]
-    
+
     for cog_name in cogs_to_load:
         try:
             await bot.load_extension(cog_name)
@@ -82,7 +84,7 @@ async def on_ready():
         except Exception as e:
             print(f"Failed to load {cog_name}: {e}")
             traceback.print_exc()
-            
+
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} commands.")
@@ -95,12 +97,10 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         seconds = int(error.retry_after)
         hours, remainder = divmod(seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
-
         time_str = []
         if hours > 0: time_str.append(f"{hours}h")
         if minutes > 0: time_str.append(f"{minutes}m")
         if seconds > 0 or not time_str: time_str.append(f"{seconds}s")
-
         await interaction.response.send_message(f"This command is on cooldown. Please try again in **{' '.join(time_str)}**.", ephemeral=True)
     elif isinstance(error, app_commands.MissingPermissions):
         await interaction.response.send_message("You don't have the necessary permissions to use this command.", ephemeral=True)
@@ -110,11 +110,11 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         await interaction.response.send_message("You must be the bot owner to use this command.", ephemeral=True)
     elif isinstance(error, app_commands.NoPrivateMessage):
         await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
-    # The correct class to check for a missing argument
     elif isinstance(error, commands.MissingRequiredArgument):
         await interaction.response.send_message("Missing arguments. Please check the command usage.", ephemeral=True)
+    elif isinstance(error, app_commands.BotMissingPermissions):
+        await interaction.response.send_message("I am missing the necessary permissions to run this command.", ephemeral=True)
     else:
-        # Check if the command object exists before trying to access its name
         command_name = interaction.command.name if interaction.command else "Unknown Command"
         print(f"Unhandled application command error in {command_name}: {error}")
         traceback.print_exc()
@@ -124,8 +124,17 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
             else:
                 await interaction.followup.send("An unexpected error occurred while executing this command.", ephemeral=True)
         except discord.errors.InteractionResponded:
-            # If the initial response failed, this will catch it
             await interaction.followup.send("An unexpected error occurred while executing this command.", ephemeral=True)
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    if payload.user_id == bot.user.id:
+        return
+
+@bot.event
+async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
+    if payload.user_id == bot.user.id:
+        return
 
 @bot.tree.command(name="sync", description="Syncs all application commands with Discord.")
 @commands.is_owner()
