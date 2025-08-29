@@ -1,10 +1,8 @@
 import discord
-print("Script start.")
 from discord.ext import commands, tasks
 from discord import app_commands
 import google.generativeai as genai
 import os
-print("Current working directory:", os.getcwd())
 import textwrap
 from dotenv import load_dotenv
 import json
@@ -145,3 +143,4 @@ async def sync_commands(interaction: discord.Interaction):
 
 # --- Run the Bot ---
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+
