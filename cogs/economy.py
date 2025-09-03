@@ -6,11 +6,48 @@ import random
 import datetime
 import os
 import asyncio
+import sys
+import traceback
 from typing import List, Dict, Any, Union, Optional
 import re
 
 # Import shared utility functions and global configurations
 import cogs.utils as utils
+
+# Define the path to the data directory, now local to this cog's file.
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+REWARDS_FILE = os.path.join(DATA_DIR, 'rewards.json')
+BALANCES_FILE = os.path.join(DATA_DIR, "balances.json")
+ADVENTURE_AI_RESTRICTIONS_FILE = os.path.join(DATA_DIR, 'adventure_ai_restrictions.txt')
+ANAGRAM_GAME_STATE_FILE = os.path.join(DATA_DIR, 'anagram_game_state.json')
+ANAGRAM_WORDS_FILE = os.path.join(DATA_DIR, 'anagram_words.json')
+BUMP_BATTLE_STATE_FILE = os.path.join(DATA_DIR, 'bump_battle_state.json')
+SORRY_JAR_FILE = os.path.join(DATA_DIR, 'swear_jar.json')
+BOOSTER_REWARDS_FILE = os.path.join(DATA_DIR, "booster_rewards.json")
+
+# Helper functions for data persistence, now located in this file.
+def _load_data(file_path: str, default_value: Any = None) -> Any:
+    """Loads data from a JSON file, returning a default value if the file is not found or is corrupted."""
+    if not os.path.exists(file_path):
+        return default_value if default_value is not None else {}
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"JSON Decode Error in {file_path}: {e}. Returning default value.")
+        return default_value if default_value is not None else {}
+    except Exception as e:
+        print(f"Error loading data from {file_path}: {e}. Returning default value.")
+        return default_value if default_value is not None else {}
+
+def _save_data(data: Any, file_path: str):
+    """Saves data to a JSON file."""
+    try:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving data to {file_path}: {e}")
 
 # This class defines the interactive View with buttons.
 class BumpBattleView(discord.ui.View):
@@ -47,7 +84,7 @@ class AnagramReplayView(discord.ui.View):
         await interaction.response.send_message("Starting a new anagram game!", ephemeral=True)
         button.disabled = True
         await interaction.message.edit(view=self)
-        anagram_channel_id = utils.bot_config.get('ANAGRAM_CHANNEL_ID')
+        anagram_channel_id = self.cog.anagram_game_state.get('channel_id')
         if anagram_channel_id:
             await self.cog._start_new_anagram_game_instance(anagram_channel_id)
 
@@ -72,83 +109,69 @@ class Economy(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.main_guild_id = utils.MAIN_GUILD_ID
-        self.anagram_game_state = utils.load_anagram_game_state()
-        self.anagram_words = utils.load_anagram_words()
-        self.bump_battle_state = utils.load_bump_battle_state()
+        self.anagram_game_state = _load_data(ANAGRAM_GAME_STATE_FILE, {})
+        self.anagram_words = _load_data(ANAGRAM_WORDS_FILE, {}).get("words", [])
+        self.bump_battle_state = _load_data(BUMP_BATTLE_STATE_FILE, {})
         
-        # Correctly load dynamic channel IDs from the bot_config dictionary
+        # Hard-coded channel and role IDs
         self.bump_battle_channel_id = utils.bot_config.get("BUMP_BATTLE_CHANNEL_ID")
         self.vote_channel_id = utils.bot_config.get("VOTE_CHANNEL_ID")
         self.announcements_channel_id = utils.bot_config.get("ANNOUNCEMENTS_CHANNEL_ID")
         self.bump_channel_id = utils.bot_config.get("BUMP_CHANNEL_ID") 
-
+        
         # Define cooldown times in seconds
         self.BUMP_COOLDOWN = 120
         self.POINT_COOLDOWN = 120
         self.VOTE_COOLDOWN = 360
         self.disboard_cooldown_seconds = 2 * 60 * 60 # 2 hours
-        self.cooldown_role_id = 1293639562815475752
         
     @commands.Cog.listener()
     async def on_ready(self):
         # This listener is called when the cog is loaded and the bot is ready.
         # It ensures that the anagram game task starts after the bot is connected.
         self.anagram_game_task.start()
-        self.cooldown_role_task.start()
         print("Anagram game task started.")
-        print("Cooldown role task started.")
-
-
-    @tasks.loop(seconds=30)  # Check every 30 seconds
-    async def cooldown_role_task(self):
-        """This task runs to check for and remove the cooldown role."""
-        await self.bot.wait_until_ready()
-        
-        guild = self.bot.get_guild(self.main_guild_id)
-        if not guild:
-            print("Main guild not found. Skipping cooldown role task.")
-            return
-
-        cooldown_role = guild.get_role(self.cooldown_role_id)
-        if not cooldown_role:
-            print("Cooldown role not found. Skipping cooldown role task.")
-            return
-
-        # Load timestamps to check for cooldown expiration
-        cooldown_data = utils.load_daily_message_cooldowns()
-        
-        now = datetime.datetime.now(datetime.timezone.utc)
-        cooldown_seconds = 16 * 60 * 60
-
-        for user_id_str, timestamp_str in list(cooldown_data.items()):
+    
+    @commands.Cog.listener()
+    async def on_app_command_error(self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+        # Handle the bumppoint cooldown error specifically
+        if isinstance(error, commands.CommandOnCooldown) and interaction.command.name == "bumppoint":
+            slap_gif_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'slap.gif')
+            
+            # Use try-except to handle potential file not found errors
             try:
-                member = await guild.fetch_member(int(user_id_str))
-                if member and cooldown_role in member.roles:
-                    last_reward_time = datetime.datetime.fromisoformat(timestamp_str)
-                    time_since_last_reward = (now - last_reward_time).total_seconds()
+                file = discord.File(slap_gif_path, filename='slap.gif')
+            except FileNotFoundError:
+                print(f"Error: slap.gif not found at {slap_gif_path}")
+                file = None
+            
+            embed = discord.Embed(
+                title="Don't get too excited!",
+                description=f"You can only use this command once per Disboard/Discodus bump. Please wait another {int(error.retry_after)} seconds before trying again.",
+                color=discord.Color.red()
+            )
+            
+            if file:
+                embed.set_image(url="attachment://slap.gif")
+                await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+            else:
+                await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        # Fallback for other command errors
+        print(f"Ignoring exception in command {interaction.command}:", file=sys.stderr)
+        traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
-                    if time_since_last_reward >= cooldown_seconds:
-                        print(f"DEBUG: Removing cooldown role from user {member.display_name}")
-                        await member.remove_roles(cooldown_role, reason="Daily message reward cooldown expired.")
-            except discord.NotFound:
-                # User left the server, clean up their data
-                del cooldown_data[user_id_str]
-                utils.save_daily_message_cooldowns(cooldown_data)
-                print(f"DEBUG: User {user_id_str} not found, cleaning up cooldown data.")
-            except Exception as e:
-                print(f"DEBUG: An error occurred while processing user {user_id_str}: {e}")
 
     # --- Anagram Game Command and Loop ---
     @app_commands.command(name="start_anagram_game", description="Starts a new Anagram game immediately.")
     async def start_anagram_game(self, interaction: discord.Interaction):
         """Starts a new anagram game immediately."""
-        anagram_channel_id = utils.bot_config.get('ANAGRAM_CHANNEL_ID')
+        anagram_channel_id = self.anagram_game_state.get('channel_id')
         if not anagram_channel_id:
             await interaction.response.send_message("The anagram channel is not set. Please use an admin command to set it first.", ephemeral=True)
             return
 
-        anagram_state = utils.load_anagram_game_state()
-        if anagram_state.get('current_word'):
+        if self.anagram_game_state.get('current_word'):
             await interaction.response.send_message("An anagram game is already in progress.", ephemeral=True)
             return
 
@@ -163,10 +186,9 @@ class Economy(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         # Clear the game state
-        anagram_state = utils.load_anagram_game_state()
-        if anagram_state.get('current_word'):
-            anagram_state['current_word'] = None
-            utils.save_anagram_game_state(anagram_state)
+        if self.anagram_game_state.get('current_word'):
+            self.anagram_game_state['current_word'] = None
+            _save_data(self.anagram_game_state, ANAGRAM_GAME_STATE_FILE)
             self.anagram_game_task.restart()
             await interaction.followup.send("The anagram game has been reset and a new one will begin shortly.", ephemeral=True)
         else:
@@ -178,24 +200,22 @@ class Economy(commands.Cog):
             print(f"Anagram task failed: Channel with ID {channel_id} not found.")
             return
 
-        anagram_state = utils.load_anagram_game_state()
         # Use the AI to generate a new word
         word = await utils.generate_anagram_word_with_gemini()
         if not word:
             # Fallback to the hardcoded list if AI fails
-            anagram_words = utils.load_anagram_words()
-            if not anagram_words:
+            if not self.anagram_words:
                 await channel.send("Sorry, I couldn't generate a new anagram word right now. The word list is empty.")
                 return
-            word = random.choice(anagram_words)
+            word = random.choice(self.anagram_words)
             await channel.send("The AI failed to generate a new word, falling back to a pre-defined list.")
 
         shuffled_word = "".join(random.sample(word, len(word)))
 
-        anagram_state['current_word'] = word
-        anagram_state['shuffled_word'] = shuffled_word
-        anagram_state['channel_id'] = channel_id
-        utils.save_anagram_game_state(anagram_state)
+        self.anagram_game_state['current_word'] = word
+        self.anagram_game_state['shuffled_word'] = shuffled_word
+        self.anagram_game_state['channel_id'] = channel_id
+        _save_data(self.anagram_game_state, ANAGRAM_GAME_STATE_FILE)
 
         embed = discord.Embed(
             title="Game = Anagram",
@@ -212,8 +232,8 @@ class Economy(commands.Cog):
         if not anagram_channel_id:
             return
 
-        anagram_state = utils.load_anagram_game_state()
-        if anagram_state.get('current_word'):
+        self.anagram_game_state = _load_data(ANAGRAM_GAME_STATE_FILE, {})
+        if self.anagram_game_state.get('current_word'):
             print("Anagram task skipped: A game is already in progress.")
             return
         
@@ -221,7 +241,7 @@ class Economy(commands.Cog):
 
         await asyncio.sleep(240)
 
-        current_anagram_state = utils.load_anagram_game_state()
+        current_anagram_state = _load_data(ANAGRAM_GAME_STATE_FILE, {})
         if current_anagram_state.get('current_word'):
             channel = self.bot.get_channel(current_anagram_state.get('channel_id'))
             if channel:
@@ -233,7 +253,8 @@ class Economy(commands.Cog):
                 )
                 await channel.send(embed=embed, view=AnagramReplayView(self))
             current_anagram_state['current_word'] = None
-            utils.save_anagram_game_state(current_anagram_state)
+            _save_data(current_anagram_state, ANAGRAM_GAME_STATE_FILE)
+
 
     # --- Economy Commands ---
     @app_commands.command(name="balance", description="Checks your or another member's coin balance.")
@@ -255,104 +276,6 @@ class Economy(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
     
-    @app_commands.command(name="checkin", description="Check in daily or weekly for role-based rewards.")
-    @app_commands.describe(period="The period you want to check in for.")
-    @app_commands.choices(period=[
-        app_commands.Choice(name="daily", value="daily"),
-        app_commands.Choice(name="weekly", value="weekly")
-    ])
-    async def checkin(self, interaction: discord.Interaction, period: app_commands.Choice[str]):
-        """Allows a user to check in for a daily or weekly reward."""
-        if interaction.guild and interaction.guild.id != self.main_guild_id:
-            return await interaction.response.send_message("This command is only available on the main server.", ephemeral=True)
-
-        user_id = str(interaction.user.id)
-        member = interaction.user
-        period_type = period.value
-        
-        # Load the reward and cooldown data
-        rewards_data = utils.load_rewards()
-        
-        # Initialize keys if they don't exist
-        if 'cooldowns' not in rewards_data:
-            rewards_data['cooldowns'] = {}
-        if 'rewards' not in rewards_data:
-            rewards_data['rewards'] = {}
-        
-        cooldowns = rewards_data.get('cooldowns', {})
-        rewards = rewards_data.get('rewards', {})
-
-        now = datetime.datetime.now(datetime.timezone.utc)
-        
-        # Check cooldown
-        last_checkin_str = cooldowns.get(user_id, {}).get(period_type)
-        if last_checkin_str:
-            last_checkin = datetime.datetime.fromisoformat(last_checkin_str)
-            if period_type == 'daily' and (now - last_checkin).total_seconds() < 24*60*60:
-                time_left = (last_checkin + datetime.timedelta(days=1)) - now
-                minutes, seconds = divmod(time_left.seconds, 60)
-                return await interaction.response.send_message(f"You have already checked in for your daily reward! Try again in {time_left.seconds // 3600}h {minutes}m {seconds}s.", ephemeral=True)
-            elif period_type == 'weekly' and (now - last_checkin).total_seconds() < 7*24*60*60:
-                time_left = (last_checkin + datetime.timedelta(weeks=1)) - now
-                minutes, seconds = divmod(time_left.seconds, 60)
-                return await interaction.response.send_message(f"You have already checked in for your weekly reward! Try again in {time_left.seconds // 3600}h {minutes}m {seconds}s.", ephemeral=True)
-
-        # Calculate rewards based on roles
-        total_reward = 0
-        reward_messages = []
-        user_role_ids = [role.id for role in member.roles]
-
-        for role_id, amount in rewards.get(period_type, {}).items():
-            if int(role_id) in user_role_ids:
-                total_reward += amount
-                reward_messages.append(f"• **{discord.utils.get(member.guild.roles, id=int(role_id)).name}** - {amount} coins")
-
-        if total_reward > 0:
-            utils.update_user_money(user_id, total_reward)
-            
-            if user_id not in cooldowns:
-                cooldowns[user_id] = {}
-            cooldowns[user_id][period_type] = now.isoformat()
-            rewards_data['cooldowns'] = cooldowns
-            utils.save_rewards(rewards_data)
-
-            embed = discord.Embed(
-                title=f"✅ {period_type.capitalize()} Check-in Rewards!",
-                description="You've successfully claimed the following rewards:",
-                color=discord.Color.green()
-            )
-            embed.add_field(name="Rewards Received", value="\n".join(reward_messages), inline=False)
-            embed.add_field(name="Total", value=f"**{total_reward}** <a:starcoin:1280590254935380038>", inline=False)
-            await interaction.response.send_message(embed=embed)
-        else:
-            await interaction.response.send_message(f"You do not have any roles with {period_type} rewards set. Please contact a staff member to have a reward set.", ephemeral=True)
-
-    @app_commands.command(name="set_reward", description="[Staff Only] Sets a reward for a role.")
-    @app_commands.describe(
-        period="The period for the reward (daily or weekly).",
-        role="The role to set the reward for.",
-        amount="The amount of coins to be rewarded."
-    )
-    @app_commands.choices(period=[
-        app_commands.Choice(name="daily", value="daily"),
-        app_commands.Choice(name="weekly", value="weekly")
-    ])
-    @app_commands.check(is_moderator)
-    async def set_reward(self, interaction: discord.Interaction, period: app_commands.Choice[str], role: discord.Role, amount: int):
-        """Allows staff to set a reward for a specific role."""
-        rewards_data = utils.load_rewards()
-        period_type = period.value
-        role_id_str = str(role.id)
-
-        if period_type not in rewards_data['rewards']:
-            rewards_data['rewards'][period_type] = {}
-        
-        rewards_data['rewards'][period_type][role_id_str] = amount
-        utils.save_rewards(rewards_data)
-
-        await interaction.response.send_message(f"Successfully set the **{period_type}** reward for the role **{role.name}** to **{amount}** coins.", ephemeral=True)
-
-
     @app_commands.command(name="deposit", description="Deposits money from your wallet to your bank.")
     @app_commands.describe(amount="The amount of money to deposit. Use 'all' to deposit everything.")
     async def deposit(self, interaction: discord.Interaction, amount: str):
@@ -681,7 +604,7 @@ class Economy(commands.Cog):
         
         if board == "coins":
             embed = discord.Embed(title=f"{guild.name}'s Leaderboard (Top Coins)", color=discord.Color.gold())
-            balances = utils.load_data(utils.BALANCES_FILE)
+            balances = _load_data(BALANCES_FILE)
             leaderboard_entries = []
             for user_id_str, money in balances.items():
                 if isinstance(money, dict):
@@ -716,7 +639,7 @@ class Economy(commands.Cog):
 
         elif board == "swears":
             embed = discord.Embed(title=f"{guild.name}'s Leaderboard (Swear Tally)", color=discord.Color.gold())
-            swear_jar_data = utils.load_swear_jar_data()
+            swear_jar_data = _load_data(SORRY_JAR_FILE, {'words': [], 'tally': {}})
             tally = swear_jar_data.get('tally', {})
             leaderboard_entries = []
             for user_id_str, count in tally.items():
@@ -730,7 +653,7 @@ class Economy(commands.Cog):
             await interaction.followup.send(embed=embed)
             
         elif board == "bumps":
-            bump_battle_state = utils.load_bump_battle_state()
+            bump_battle_state = _load_data(BUMP_BATTLE_STATE_FILE, {})
             sub_users = bump_battle_state.get('sub', {}).get('users', {})
             dom_users = bump_battle_state.get('dom', {}).get('users', {})
             
@@ -769,11 +692,11 @@ class Economy(commands.Cog):
         elif board == "sorry":
             # Change the title here
             embed = discord.Embed(title="Who is the most sorry server member?", color=discord.Color.gold())
-            sorry_jar_data = utils.load_sorry_jar_data()
+            sorry_jar_data = _load_data(SORRY_JAR_FILE, {'words': [], 'tally': {}})
             leaderboard_entries = []
             for user_id_str, count in sorry_jar_data.items():
                 # Skip the last apology timestamps
-                if user_id_str.endswith('_last_apology'):
+                if user_id_str.endswith('_last_apology') or user_id_str == 'words':
                     continue
                 member = guild.get_member(int(user_id_str))
                 if member:
@@ -784,7 +707,7 @@ class Economy(commands.Cog):
             embed.description = description if description else "The sorry jar is empty!"
             
             # Add the image from the assets folder
-            file = discord.File("assets/sorryjar.png", filename="sorryjar.png")
+            file = discord.File(os.path.join(os.path.dirname(__file__), '..', 'assets', 'sorryjar.png'), filename="sorryjar.png")
             embed.set_thumbnail(url="attachment://sorryjar.png")
             
             await interaction.followup.send(embed=embed, file=file)
@@ -829,7 +752,7 @@ class Economy(commands.Cog):
         await interaction.response.defer(ephemeral=False)
         
         user_id_str = str(interaction.user.id)
-        sorry_jar_data = utils.load_sorry_jar_data()
+        sorry_jar_data = _load_data(SORRY_JAR_FILE, {'words': [], 'tally': {}})
         
         tally = sorry_jar_data.get(user_id_str, 0)
 
@@ -840,108 +763,18 @@ class Economy(commands.Cog):
         )
         
         # Load the image from the assets folder
-        file = discord.File("assets/sorryjar.png", filename="sorryjar.png")
+        file = discord.File(os.path.join(os.path.dirname(__file__), '..', 'assets', 'sorryjar.png'), filename="sorryjar.png")
         embed.set_image(url="attachment://sorryjar.png")
 
         await interaction.followup.send(embed=embed, file=file)
-
-    # NEW: Command to remove the cooldown role from all users
-    @app_commands.command(name="cleartimeoutrole", description="[Moderator Only] Removes the 16h timeout role from all users who have it.")
-    @app_commands.check(is_moderator)
-    async def cleartimeoutrole(self, interaction: discord.Interaction):
-        """Removes the cooldown role from all users on the server."""
-        await interaction.response.defer(ephemeral=True)
-
-        guild = interaction.guild
-        cooldown_role = guild.get_role(self.cooldown_role_id)
-
-        if not cooldown_role:
-            return await interaction.followup.send(f"Error: The cooldown role with ID {self.cooldown_role_id} was not found on this server.", ephemeral=True)
         
-        members_with_role = [member for member in guild.members if cooldown_role in member.roles]
-        
-        if not members_with_role:
-            return await interaction.followup.send("No users currently have the cooldown role.", ephemeral=True)
-
-        cleared_count = 0
-        for member in members_with_role:
-            try:
-                await member.remove_roles(cooldown_role, reason="Manual reset via cleartimeoutrole command.")
-                cleared_count += 1
-                await asyncio.sleep(0.5) # Add a small delay to avoid rate-limiting
-            except discord.Forbidden:
-                print(f"Error: Bot does not have permissions to remove role from {member.display_name}")
-            except Exception as e:
-                print(f"Error removing role from {member.display_name}: {e}")
-
-        # Also clear the cooldown data file
-        utils.save_daily_message_cooldowns({})
-        
-        await interaction.followup.send(f"Successfully removed the cooldown role from **{cleared_count}** user(s) and reset the cooldown data file.", ephemeral=True)
-
-    # NEW: Listener to detect bumps from multiple bots and log the timestamp
     @commands.Cog.listener()
     async def on_message(self, message):
         if message.author.bot or not message.guild:
             return
-        
-        # Check for Disboard or Discodus bump messages in the single bump channel
-        bump_channel_id = utils.bot_config.get('BUMP_CHANNEL_ID')
-        
-        if message.channel.id == bump_channel_id:
-            is_disboard_bump = message.author.name == "Disboard" and "Bump done" in message.content
-            is_discodus_bump = message.author.name == "DISCODUS: Discord Server Booster" and "Bump done!" in message.content
-            
-            if is_disboard_bump or is_discodus_bump:
-                guild_id_str = str(message.guild.id)
-                bump_timestamps = utils.load_disboard_timestamps()
-                bump_timestamps[guild_id_str] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                utils.save_disboard_timestamps(bump_timestamps)
-                print(f"DEBUG: External bump detected and timestamp logged for guild {guild_id_str}.")
-
-
-        # Existing check-in logic
-        daily_reward_channel_id = utils.bot_config.get('DAILY_MESSAGE_REWARD_CHANNEL_ID')
-        if message.channel.id == daily_reward_channel_id:
-            user_id_str = str(message.author.id)
-            cooldowns = utils.load_daily_message_cooldowns()
-            
-            now = datetime.datetime.now(datetime.timezone.utc)
-            last_reward_str = cooldowns.get(user_id_str)
-            
-            # Cooldown is 16 hours, converted to seconds
-            cooldown_seconds = 16 * 60 * 60
-            
-            can_receive_reward = True
-            if last_reward_str:
-                last_reward_time = datetime.datetime.fromisoformat(last_reward_str)
-                time_since_last_reward = (now - last_reward_time).total_seconds()
-                
-                if time_since_last_reward < cooldown_seconds:
-                    can_receive_reward = False
-
-            if can_receive_reward:
-                utils.update_user_money(message.author.id, 25)
-                cooldowns[user_id_str] = now.isoformat()
-                utils.save_daily_message_cooldowns(cooldowns)
-                
-                # Add the cooldown role
-                guild = message.guild
-                cooldown_role = guild.get_role(self.cooldown_role_id)
-                if cooldown_role:
-                    await message.author.add_roles(cooldown_role, reason="Received daily message reward.")
-                
-                # Create and send the embed message
-                embed = discord.Embed(
-                    description="<a:mm:1279185497163305082> You have been credited with 25 <a:starcoin:1280590254935380038> <a:mm:1279185497163305082>",
-                    color=discord.Color.purple()
-                )
-                embed.set_footer(text="Please come back in 24 hours")
-                await message.channel.send(embed=embed, reference=message.to_reference())
-
 
         # Anagram game logic
-        anagram_state = utils.load_anagram_game_state()
+        anagram_state = _load_data(ANAGRAM_GAME_STATE_FILE, {})
         if message.channel.id == anagram_state.get('channel_id'):
             print(f"DEBUG: Message in anagram channel from {message.author.name}. Content: '{message.content}'.")
             correct_word = anagram_state.get('current_word')
@@ -959,21 +792,21 @@ class Economy(commands.Cog):
                 await message.channel.send(embed=embed, view=AnagramReplayView(self))
                 
                 anagram_state['current_word'] = None
-                utils.save_anagram_game_state(anagram_state)
+                _save_data(anagram_state, ANAGRAM_GAME_STATE_FILE)
                 
                 self.anagram_game_task.restart()
                 print(f"DEBUG: Anagram game won by {message.author.name}. Restarting task.")
 
         # Sorry Jar logic
         if re.search(r'\b(sorry)\b', message.content.lower()):
-            sorry_jar_data = utils.load_sorry_jar_data()
+            sorry_jar_data = _load_data(SORRY_JAR_FILE, {'words': [], 'tally': {}})
             user_id_str = str(message.author.id)
             
             if user_id_str not in sorry_jar_data:
                 sorry_jar_data[user_id_str] = 0
             
             sorry_jar_data[user_id_str] += 1
-            utils.save_sorry_jar_data(sorry_jar_data)
+            _save_data(sorry_jar_data, SORRY_JAR_FILE)
             
             # Send the full embed response every time a message is sent.
             tally = sorry_jar_data.get(user_id_str, 0)
@@ -984,13 +817,11 @@ class Economy(commands.Cog):
                 color=discord.Color.purple()
             )
             
-            file = discord.File("assets/sorryjar.png", filename="sorryjar.png")
+            file = discord.File(os.path.join(os.path.dirname(__file__), '..', 'assets', 'sorryjar.png'), filename="sorryjar.png")
             embed.set_image(url="attachment://sorryjar.png")
-            embed.set_footer(text=f"Added 1 coin to {message.author.name}'s sorry jar! Current tally: {tally}")
 
             await message.channel.send(embed=embed, file=file)
-
-
+        
     # --- New Slash Commands for Bump Battle ---
     @app_commands.command(name="bumppoint", description="Awards a point for bumping the server!")
     @app_commands.describe(team="The team you want to give a point to.")
@@ -1004,91 +835,7 @@ class Economy(commands.Cog):
         await interaction.response.defer()
         user_id = str(interaction.user.id)
         team_name = team.value
-        guild = interaction.guild
-
-        # Check for the user-specific cooldown
-        try:
-            # We call the real cooldown check here. If it fails, the on_app_command_error handler will catch it.
-            await self.bot.get_application_command("bumppoint", guild=guild).invoke_with_cooldown(interaction)
-        except commands.CommandOnCooldown as e:
-            # If the user is on cooldown, send the slap message
-            slap_gif_path = os.path.join(os.getcwd(), 'assets', 'slap.gif')
-            file = discord.File(slap_gif_path, filename='slap.gif')
-            
-            embed = discord.Embed(
-                title="Don't get too excited!",
-                description=f"You can only use this command once per Disboard/Discodus bump. Please wait another {int(e.retry_after)} seconds before trying again.",
-                color=discord.Color.red()
-            )
-            embed.set_image(url="attachment://slap.gif")
-            return await interaction.followup.send(embed=embed, file=file, ephemeral=True)
-
-        # Check if the server has been bumped on an external platform recently
-        bump_timestamps = utils.load_disboard_timestamps()
-        last_external_bump_str = bump_timestamps.get(str(guild.id))
         
-        now = datetime.datetime.now(datetime.timezone.utc)
-        
-        can_award_points = False
-        # The cooldown for Disboard is 2 hours (7200 seconds)
-        disboard_cooldown_seconds = 2 * 60 * 60
-        
-        if last_external_bump_str:
-            last_external_bump_time = datetime.datetime.fromisoformat(last_external_bump_str)
-            time_since_last_bump = (now - last_external_bump_time).total_seconds()
-            
-            if time_since_last_bump < disboard_cooldown_seconds:
-                can_award_points = True
-                
-        if can_award_points:
-            bump_battle_state = utils.load_bump_battle_state()
-            
-            if team_name == 'dom':
-                bump_battle_state['dom']['points'] += 1
-                if user_id not in bump_battle_state['dom']['users']:
-                    bump_battle_state['dom']['users'][user_id] = 0
-                bump_battle_state['dom']['users'][user_id] += 1
-            else:
-                bump_battle_state['sub']['points'] += 1
-                if user_id not in bump_battle_state['sub']['users']:
-                    bump_battle_state['sub']['users'][user_id] = 0
-                bump_battle_state['sub']['users'][user_id] += 1
-
-            utils.save_bump_battle_state(bump_battle_state)
-            
-            # Send the confirmation message and image
-            if team_name == 'dom':
-                gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_domme.gif')
-                file = discord.File(gif_path, filename='bumpbattle_domme.gif')
-                embed = discord.Embed(title="1 Point For The Doms!", color=discord.Color.green())
-                embed.set_image(url="attachment://bumpbattle_domme.gif")
-                await interaction.followup.send(content=f"Thank you for bumping the server. I have given you one <a:bluecoin:1280590252817387593> for the Doms, you now have {bump_battle_state['dom']['points']}!", embed=embed, file=file)
-            else:
-                gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_sub.gif')
-                file = discord.File(gif_path, filename='bumpbattle_sub.gif')
-                embed = discord.Embed(title="1 Point For The Subs!", color=discord.Color.green())
-                embed.set_image(url="attachment://bumpbattle_sub.gif")
-                await interaction.followup.send(content=f"Thank you for bumping the server. I have given you one <a:bluecoin:1280590252817387593> for the Subs, you now have {bump_battle_state['sub']['points']}!", embed=embed, file=file)
-            
-            if bump_battle_state[team_name]['points'] >= 100:
-                await self.end_bump_battle(interaction.guild, team_name, bump_battle_state)
-        else:
-            await interaction.followup.send("You need to bump the server on Disboard or Discodus first! Use `/bump` with one of those bots, then try this command again.", ephemeral=True)
-
-
-    @app_commands.command(name="vote", description="Adds a point to your team for a server vote!")
-    @app_commands.describe(team="The team you want to vote for.")
-    @app_commands.choices(team=[
-        app_commands.Choice(name="doms", value="dom"),
-        app_commands.Choice(name="subs", value="sub")
-    ])
-    @app_commands.checks.cooldown(1, 21600, key=lambda i: (i.guild_id, i.user.id, i.data['options'][0]['value']))
-    async def vote_command(self, interaction: discord.Interaction, team: app_commands.Choice[str]):
-        """Awards a point for voting for a server with a slash command."""
-        await interaction.response.defer()
-        user_id = str(interaction.user.id)
-        team_name = team.value
-
         bump_battle_state = utils.load_bump_battle_state()
         
         if team_name == 'dom':
@@ -1097,31 +844,25 @@ class Economy(commands.Cog):
                 bump_battle_state['dom']['users'][user_id] = 0
             bump_battle_state['dom']['users'][user_id] += 1
             
-            # Correctly reference the local GIF file
             gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_domme.gif')
             file = discord.File(gif_path, filename='bumpbattle_domme.gif')
-
             embed = discord.Embed(title="1 Point For The Doms!", color=discord.Color.green())
             embed.set_image(url="attachment://bumpbattle_domme.gif")
-            
-            await interaction.followup.send(content=f"Thank you for voting for the Doms! You have been awarded 1 point.", embed=embed, file=file)
+            await interaction.followup.send(content=f"Thank you for bumping the server. I have given you one <a:bluecoin:1280590252817387593> for the Doms, you now have {bump_battle_state['dom']['points']}!", embed=embed, file=file)
         else:
             bump_battle_state['sub']['points'] += 1
             if user_id not in bump_battle_state['sub']['users']:
                 bump_battle_state['sub']['users'][user_id] = 0
             bump_battle_state['sub']['users'][user_id] += 1
-            
-            # Correctly reference the local GIF file
+
             gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_sub.gif')
             file = discord.File(gif_path, filename='bumpbattle_sub.gif')
-
             embed = discord.Embed(title="1 Point For The Subs!", color=discord.Color.green())
             embed.set_image(url="attachment://bumpbattle_sub.gif")
-            
-            await interaction.followup.send(content=f"Thank you for voting for the Subs! You have been awarded 1 point.", embed=embed, file=file)
-
+            await interaction.followup.send(content=f"Thank you for bumping the server. I have given you one <a:bluecoin:1280590252817387593> for the Subs, you now have {bump_battle_state['sub']['points']}!", embed=embed, file=file)
+        
         utils.save_bump_battle_state(bump_battle_state)
-
+        
         if bump_battle_state[team_name]['points'] >= 100:
             await self.end_bump_battle(interaction.guild, team_name, bump_battle_state)
             
@@ -1139,7 +880,7 @@ class Economy(commands.Cog):
             embed_description = f"Safe to say the subs won the Bump Battle with {state['sub']['points']} points!"
             
             # Correctly reference the local GIF file for Sub win
-            gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_sub.gif')
+            gif_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'bumpbattle_sub.gif')
             file = discord.File(gif_path, filename='bumpbattle_sub.gif')
             embed_image_url = "attachment://bumpbattle_sub.gif"
 
@@ -1148,7 +889,7 @@ class Economy(commands.Cog):
             embed_description = f"Safe to say the doms won the Bump Battle with {state['dom']['points']} points!"
 
             # Correctly reference the local GIF file for Dom win
-            gif_path = os.path.join(os.getcwd(), 'assets', 'bumpbattle_domme.gif')
+            gif_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'bumpbattle_domme.gif')
             file = discord.File(gif_path, filename='bumpbattle_domme.gif')
             embed_image_url = "attachment://bumpbattle_domme.gif"
         
@@ -1203,7 +944,7 @@ class Economy(commands.Cog):
         state['sub']['users'] = {}
         state['dom']['points'] = 0
         state['dom']['users'] = {}
-        utils.save_bump_battle_state(state)
+        _save_data(state, BUMP_BATTLE_STATE_FILE)
 
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
@@ -1215,11 +956,11 @@ class Economy(commands.Cog):
             booster_channel = self.bot.get_channel(utils.BOOSTER_REWARD_CHANNEL_ID)
             if booster_channel:
                 user_id_str = str(after.id)
-                booster_rewards = utils.load_booster_rewards()
+                booster_rewards = _load_data(BOOSTER_REWARDS_FILE, {})
                 if user_id_str not in booster_rewards:
                     utils.update_user_money(after.id, 5000)
                     booster_rewards[user_id_str] = datetime.datetime.now().isoformat()
-                    utils.save_booster_rewards(booster_rewards)
+                    _save_data(booster_rewards, BOOSTER_REWARDS_FILE)
                     await booster_channel.send(f"🎉 Thank you, {after.mention}, for boosting the server! You have been awarded **5000** <a:starcoin:1280590254935380038> for your generosity!")
 
 async def setup(bot):
