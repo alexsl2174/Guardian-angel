@@ -75,9 +75,11 @@ class TimeRole(commands.Cog):
         self.cooldown_role_task.start()
         self.daily_post_task.start()
         self.check_timed_roles.start()
+        self.periodic_revive.start() # Now starting the revive task here
         print("Cooldown role task started.")
         print("Daily post task started.")
         print("Timed roles check started.")
+        print("Periodic revive task started.")
     
     @commands.Cog.listener()
     async def on_app_command_error(self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
@@ -333,6 +335,88 @@ class TimeRole(commands.Cog):
             print(f"Error in set_timed_role: {traceback.format_exc()}")
             await interaction.followup.send(f"An unexpected error occurred: {e}", ephemeral=True)
 
+    @app_commands.command(name="revivepref", description="Sets the time interval for periodic chat revival.")
+    @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
+    @app_commands.describe(
+        hours="How often the chat revive should run in hours (e.g., 8).",
+        test_revive="Set to True to run the revive immediately for testing."
+    )
+    async def revive_pref(self, interaction: discord.Interaction, hours: Optional[int] = None, test_revive: Optional[bool] = False):
+        """
+        Sets the chat revive interval and allows for immediate testing.
+        """
+        await interaction.response.defer(ephemeral=True)
+
+        if hours is not None:
+            if hours < 1:
+                await interaction.followup.send("The number of hours must be at least 1.", ephemeral=True)
+                return
+            utils.update_dynamic_config("REVIVE_INTERVAL_HOURS", hours)
+            await interaction.followup.send(f"Chat revive interval set to {hours} hours. The next revive will be checked at this interval.", ephemeral=True)
+
+        if test_revive:
+            await interaction.followup.send("Running chat revive test now...", ephemeral=True)
+            await self._run_revive_logic(is_test=True)
+
+        if hours is None and not test_revive:
+            await interaction.followup.send(f"Current chat revive interval is {utils.bot_config.get('REVIVE_INTERVAL_HOURS', 6)} hours.", ephemeral=True)
+
+    async def _run_revive_logic(self, is_test: bool = False):
+        channel_id = utils.CHAT_REVIVE_CHANNEL_ID
+        if not channel_id:
+            print("Periodic revive failed: No chat revive channel set.")
+            return
+
+        try:
+            channel = await self.bot.fetch_channel(channel_id)
+        except discord.NotFound:
+            print(f"Periodic revive failed: Channel with ID {channel_id} not found.")
+            return
+        except discord.Forbidden:
+            print(f"Periodic revive failed: Bot lacks permissions to fetch channel with ID {channel_id}.")
+            return
+
+        revive_interval_hours = utils.bot_config.get("REVIVE_INTERVAL_HOURS", 6)
+
+        if not is_test:
+            last_message_age = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=revive_interval_hours)
+            last_message_found = False
+
+            try:
+                async for message in channel.history(limit=1, oldest_first=False):
+                    last_message = message
+                    last_message_found = True
+                    break
+            except discord.Forbidden:
+                print(f"Periodic revive failed: Bot lacks permissions to read message history in channel {channel.name}.")
+                return
+            except Exception as e:
+                print(f"Error fetching channel history in {channel.name}: {e}")
+                return
+
+            if last_message_found and last_message.created_at.replace(tzinfo=datetime.timezone.utc) > last_message_age:
+                print(f"Periodic revive skipped: Channel {channel.name} is active. Last message sent at {last_message.created_at}.")
+                return
+
+        revive_role_id = utils.CHAT_REVIVE_ROLE_ID
+        role = channel.guild.get_role(revive_role_id)
+        if not role:
+            print(f"Periodic revive failed: Role with ID {revive_role_id} not found in guild {channel.guild.name}.")
+            return
+
+        prompt = "Generate a short, engaging, and non-controversial question to revive a chat conversation. The question should be similar to these examples: 'What's the best movie you've seen recently?', 'If you could travel anywhere in the world right now, where would you go?', 'Alright, chat’s been too quiet… so, pineapple on pizza: yes or no? 🍍🍕', 'If you could swap lives with a video game character for a day, who would it be?', 'Imagine you wake up in the last movie/series you watched. What’s your survival plan?', 'What’s a conspiracy theory you don’t believe, but still find super entertaining?', 'Quick vote: Coffee ☕, Tea 🍵, or Energy Drinks ⚡?', 'Favorite season? 🌸 Spring | ☀️ Summer | 🍂 Autumn | ❄️ Winter', 'If you were a potato, how would you want to be cooked?', 'The last emoji you used is your weapon in the apocalypse. How screwed are you?', 'Name something that isn’t illegal but feels like it should be.' or 'Would you rather fight 1 horse-sized duck or 100 duck-sized horses?', 'If you had $1,000 to spend in 1 hour, what would you buy?', 'Let’s settle this once and for all: cats 🐱 or dogs 🐶?' The response should be a single sentence."
+
+        chat_history = [{"role": "user", "parts": [{"text": prompt}]}]
+        ai_message = await utils.generate_text_with_gemini_with_history(chat_history=chat_history)
+
+        if ai_message:
+            message_content = f"{role.mention}\n\n{ai_message}"
+            await channel.send(message_content)
+
+    @tasks.loop(minutes=30)
+    async def periodic_revive(self):
+        await self._run_revive_logic(is_test=False)
+
     @tasks.loop(minutes=30)
     async def check_timed_roles(self):
         print("Checking for expired timed roles...")
@@ -498,7 +582,7 @@ class TimeRole(commands.Cog):
                 utils.save_last_image_post_date(user_id, now)
 
                 await message.channel.send(f"{message.author.mention}, you have been credited with 250 coins for your image post! Please post any comments in <#{utils.DAILY_COMMENTS_CHANNEL_ID}>.", delete_after=10)
-
+    
 async def setup(bot):
     """The setup function to add this cog to the bot."""
     await bot.add_cog(TimeRole(bot))
