@@ -59,16 +59,16 @@ async def on_ready():
 
     cogs_to_load = [
         "cogs.economy",
-        "cogs.games",
-        "cogs.modmail_core",
+        "cogs.timerole",
+        #"cogs.modmail_core",
         "cogs.counting_game",
         "cogs.fun_commands",
         "cogs.pins",
         "cogs.adventure",
         "cogs.hangrygames",
         "cogs.swear_jar",
-        "cogs.item",
-        "cogs.shop",
+        #"cogs.item",
+        #"cogs.shop",
         "cogs.bug_catching",
         "cogs.tree",
         "cogs.ai_features",
@@ -143,4 +143,5 @@ async def sync_commands(interaction: discord.Interaction):
 
 # --- Run the Bot ---
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+
 
