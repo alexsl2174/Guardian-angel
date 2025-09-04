@@ -67,16 +67,16 @@ class TimeRole(commands.Cog):
         # NEW: Constants for the task drop system
         self.TASK_DROP_CHANNEL_ID = 1397729250584432731
         self.TIMED_TASK_ROLE_ID = 1408994431356370964
-        self.cooldown_role_id = 1293639562815475752
+        self.checkin_cooldown_role_id = 1293639562815475752
         
     @commands.Cog.listener()
     async def on_ready(self):
         # This listener is called when the cog is loaded and the bot is ready.
-        self.cooldown_role_task.start()
+        self.checkin_cooldown_role_task.start()
         self.daily_post_task.start()
         self.check_timed_roles.start()
         self.periodic_revive.start() # Now starting the revive task here
-        print("Cooldown role task started.")
+        print("Checkin Cooldown role task started.")
         print("Daily post task started.")
         print("Timed roles check started.")
         print("Periodic revive task started.")
@@ -87,39 +87,43 @@ class TimeRole(commands.Cog):
         print(f"Ignoring exception in command {interaction.command}:", file=sys.stderr)
         traceback.print_exception(type(error), error, error.__traceback__, file=sys.stderr)
 
+###################################################################
+###### CHECK IN CHANNEL TEXTUAL MESSAGE FOR DAILY #################
+###################################################################
+
     @tasks.loop(seconds=30)  # Check every 30 seconds
-    async def cooldown_role_task(self):
-        """This task runs to check for and remove the cooldown role."""
+    async def checkin_cooldown_role_task(self):
+        """This task runs to check for and remove the checkin cooldown role."""
         await self.bot.wait_until_ready()
         
         guild = self.bot.get_guild(self.main_guild_id)
         if not guild:
-            print("Main guild not found. Skipping cooldown role task.")
+            print("Main guild not found. Skipping checkin cooldown role task.")
             return
 
-        cooldown_role = guild.get_role(self.cooldown_role_id)
-        if not cooldown_role:
-            print("Cooldown role not found. Skipping cooldown role task.")
+        checkin_cooldown_role = guild.get_role(self.checkin_cooldown_role_id)
+        if not checkin_cooldown_role:
+            print("Checkin Cooldown role not found. Skipping checkin cooldown role task.")
             return
 
-        # Load timestamps to check for cooldown expiration
+        # Load timestamps to check for checkin cooldown expiration
         cooldown_data = _load_data(DAILY_MESSAGE_COOLDOWNS_FILE, {})
         
         now = datetime.datetime.now(datetime.timezone.utc)
         
-        # Cooldown is 16 hours, converted to seconds
+        #Checkin Cooldown is 16 hours, converted to seconds
         cooldown_seconds = 16 * 60 * 60
 
         for user_id_str, timestamp_str in list(cooldown_data.items()):
             try:
                 member = await guild.fetch_member(int(user_id_str))
-                if member and cooldown_role in member.roles:
+                if member and checkin_cooldown_role in member.roles:
                     last_reward_time = datetime.datetime.fromisoformat(timestamp_str)
                     time_since_last_reward = (now - last_reward_time).total_seconds()
 
                     if time_since_last_reward >= cooldown_seconds:
                         print(f"DEBUG: Removing cooldown role from user {member.display_name}")
-                        await member.remove_roles(cooldown_role, reason="Daily message reward cooldown expired.")
+                        await member.remove_roles(checkin_cooldown_role, reason="Daily message reward cooldown expired.")
                         del cooldown_data[user_id_str]
                         _save_data(cooldown_data, DAILY_MESSAGE_COOLDOWNS_FILE)
             except discord.NotFound:
@@ -131,6 +135,10 @@ class TimeRole(commands.Cog):
             except Exception as e:
                 print(f"DEBUG: An error occurred while processing user {user_id_str}: {e}")
     
+###################################################################################################
+################# CHECK IN COMMAND WHO CAN BE DAILY OR WEEKLY ##################################### 
+###################################################################################################
+
     # --- Check-in and Reward Commands ---
     @app_commands.command(name="checkin", description="Check in daily or weekly for role-based rewards.")
     @app_commands.describe(period="The period you want to check in for.")
@@ -209,6 +217,10 @@ class TimeRole(commands.Cog):
         else:
             await interaction.response.send_message(f"You do not have any roles with {period_type} rewards set. Please contact a staff member to have a reward set.", ephemeral=True)
 
+##############################################################################################################
+########## COMMAND TO SET REWARD FOR /SET TIMED ROLE CREATED ROLE ############################################
+##############################################################################################################
+
     @app_commands.command(name="set_reward", description="[Staff Only] Sets a reward for a role.")
     @app_commands.describe(
         period="The period for the reward (daily or weekly).",
@@ -235,7 +247,12 @@ class TimeRole(commands.Cog):
         _save_data(rewards_data, REWARDS_FILE)
 
         await interaction.response.send_message(f"Successfully set the **{period_type}** reward for the role **{role.name}** to **{amount}** coins.", ephemeral=True)
-        
+
+ #############################################################################################
+### COMMAND TO REMOVE THE ROLE TIMED OUT 16 CHECKIN FROM USER WHO HAVE IT 
+# (THIS WAS ADDED WHILE I WAS TRYING TO BUGFIX THE COMMAND, WILL NOT BE NEEDED WHEN FIX) ####
+#####################################################################################
+
     @app_commands.command(name="cleardailycheckinrole", description="[Moderator Only] Removes the daily check-in role from all users.")
     @app_commands.check(is_moderator)
     async def cleardailycheckinrole(self, interaction: discord.Interaction):
@@ -269,6 +286,10 @@ class TimeRole(commands.Cog):
         utils.save_daily_message_cooldowns({})
 
         await interaction.followup.send(f"Successfully removed the daily check-in role from **{cleared_count}** user(s) and reset the cooldown data file.", ephemeral=True)
+
+#####################################################################################################
+### COMMAND FOR STAFF TO CREATE TIMED ROLE (WHO MIGHT NOT WORK ACTUALLY) ###########################
+######################################################################################################
 
     @app_commands.command(name="set_timed_role", description="Adds or updates a global timed role.")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -335,6 +356,10 @@ class TimeRole(commands.Cog):
             print(f"Error in set_timed_role: {traceback.format_exc()}")
             await interaction.followup.send(f"An unexpected error occurred: {e}", ephemeral=True)
 
+#################################################################
+####### CHAT REVIVE SECTION #####################################
+#################################################################
+
     @app_commands.command(name="revivepref", description="Sets the time interval for periodic chat revival.")
     @app_commands.checks.has_any_role(*utils.ROLE_IDS.get("Staff", []))
     @app_commands.describe(
@@ -360,6 +385,10 @@ class TimeRole(commands.Cog):
 
         if hours is None and not test_revive:
             await interaction.followup.send(f"Current chat revive interval is {utils.bot_config.get('REVIVE_INTERVAL_HOURS', 6)} hours.", ephemeral=True)
+
+###################
+## CHAT REVIVE LOGIC ##
+################
 
     async def _run_revive_logic(self, is_test: bool = False):
         channel_id = utils.CHAT_REVIVE_CHANNEL_ID
@@ -416,6 +445,8 @@ class TimeRole(commands.Cog):
     @tasks.loop(minutes=30)
     async def periodic_revive(self):
         await self._run_revive_logic(is_test=False)
+
+###############
 
     @tasks.loop(minutes=30)
     async def check_timed_roles(self):
